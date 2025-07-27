@@ -1,0 +1,1 @@
+// Practice interface component - placeholder for task 12
