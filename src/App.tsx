@@ -12,7 +12,6 @@ function App() {
   );
 
   const handleActivityCreated = (activityId: string) => {
-    console.log("Activity created:", activityId);
     // In a real app, you might navigate to the activity or show a success message
     setCurrentView("browse");
   };
