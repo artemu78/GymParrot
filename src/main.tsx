@@ -1,45 +1,13 @@
 import { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
-import {
-  Outlet,
-  RouterProvider,
-  createRootRoute,
-  createRoute,
-  createRouter,
-} from "@tanstack/react-router";
-import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
-import StoreDemo from "./routes/demo.store.tsx";
+import { RouterProvider, createRouter } from "@tanstack/react-router";
 
 import "./styles.css";
 import reportWebVitals from "./reportWebVitals.ts";
 
-import App from "./App.tsx";
+import { routeTree } from "./routeTree.gen";
 
-const rootRoute = createRootRoute({
-  component: () => (
-    <>
-      <Outlet />
-      <TanStackRouterDevtools />
-    </>
-  ),
-});
-
-const indexRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/",
-  component: App,
-});
-
-const routeTree = rootRoute.addChildren([indexRoute, StoreDemo(rootRoute)]);
-
-const router = createRouter({
-  routeTree,
-  context: {},
-  defaultPreload: "intent",
-  scrollRestoration: true,
-  defaultStructuralSharing: true,
-  defaultPreloadStaleTime: 0,
-});
+const router = createRouter({ routeTree });
 
 declare module "@tanstack/react-router" {
   interface Register {
