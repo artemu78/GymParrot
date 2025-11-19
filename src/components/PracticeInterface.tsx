@@ -556,8 +556,9 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                 isRecording={isTracking}
                 onVideoReady={handleVideoReady}
                 onError={handleError}
-                width={640}
-                height={480}
+                width={480}
+                height={360}
+                className="w-full max-w-lg"
               />
             </div>
 

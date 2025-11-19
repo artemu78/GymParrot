@@ -248,7 +248,7 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
       <div
         ref={containerRef}
         className={`relative bg-gray-900 rounded-lg overflow-hidden ${className}`}
-        style={{ width, height }}
+        style={width && height ? { width, height } : undefined}
       >
         {/* Video element */}
         <video
