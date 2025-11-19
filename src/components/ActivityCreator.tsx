@@ -178,6 +178,8 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
   const startPoseRecording = useCallback(async () => {
     if (!videoRef.current || recordingState !== "idle") return;
 
+    let stopTracking: (() => void) | null = null;
+
     try {
       setRecordingState("preparing");
       clearError();
@@ -185,8 +187,26 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
       // Start camera if not already started
       await startCamera();
 
+      // Start pose tracking immediately to show real-time feedback during countdown
+      stopTracking = await mediaPipeService.startMovementTracking(
+        videoRef.current,
+        (landmarks) => {
+          setCurrentLandmarks(landmarks);
+        },
+        {
+          duration: 999999999, // Very long duration - we'll stop it manually
+          frameRate: 30,
+        }
+      );
+
       // Start countdown before recording
       await startCountdown();
+
+      // Stop continuous tracking before capturing final pose
+      if (stopTracking) {
+        stopTracking();
+        stopTracking = null;
+      }
 
       // Show capturing state with visual feedback
       setRecordingState("capturing");
@@ -219,11 +239,20 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
       setCapturedImage(imageDataUrl);
       setRecordingState("reviewing");
 
+      // Turn off camera after capturing - user will review the static image
+      stopCamera();
+
       // Don't proceed automatically - wait for user approval
     } catch (error) {
+      // Stop tracking if it's still running
+      if (stopTracking) {
+        stopTracking();
+      }
+      
       // Cancel countdown and release camera on error
       cancelCountdown();
       stopCamera();
+      setCurrentLandmarks([]); // Clear landmarks on error
 
       const message =
         error instanceof Error ? error.message : "Failed to record pose";
@@ -264,7 +293,7 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
       // Show success state briefly before navigating
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      // Release camera after successful recording
+      // Camera should already be off from the reviewing state, but ensure it's stopped
       stopCamera();
 
       onActivityCreated?.(activityId);
@@ -706,25 +735,28 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
                   height={480}
                 />
 
-                {/* Countdown Overlay */}
+                {/* Countdown Overlay - Positioned at top to not block camera view */}
                 {recordingState === "countdown" && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-lg">
-                    <div className="text-center">
+                  <div className="absolute top-0 left-0 right-0 flex flex-col items-center pt-8 pointer-events-none">
+                    <div className="text-center bg-black bg-opacity-70 px-8 py-6 rounded-lg shadow-2xl">
                       {countdownValue > 0 ? (
                         <>
-                          <div className="text-8xl font-bold text-white mb-4 animate-pulse">
+                          <div className="text-8xl font-bold text-white mb-2 animate-pulse">
                             {countdownValue}
                           </div>
-                          <p className="text-xl text-white">Get ready to pose!</p>
+                          <p className="text-xl text-white font-semibold">Get ready to pose!</p>
                         </>
                       ) : (
                         <>
-                          <div className="text-8xl font-bold text-green-400 mb-4 animate-bounce">
+                          <div className="text-8xl font-bold text-green-400 mb-2 animate-bounce">
                             POSE!
                           </div>
-                          <p className="text-xl text-white">Hold your position!</p>
+                          <p className="text-xl text-green-400 font-semibold">Hold your position!</p>
                         </>
                       )}
+                    </div>
+                    <div className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg">
+                      <p className="text-sm font-medium">📹 Camera active - Adjust your position</p>
                     </div>
                   </div>
                 )}

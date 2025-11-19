@@ -62,6 +62,10 @@ describe("ActivityCreator", () => {
     vi.mocked(activityService.createMovementActivity).mockResolvedValue(
       "movement-123"
     );
+    // Mock startMovementTracking for continuous pose tracking during countdown
+    vi.mocked(mediaPipeService.startMovementTracking).mockResolvedValue(
+      () => {} // Return a stop function
+    );
   });
 
   it("should render form elements correctly", () => {
@@ -150,18 +154,21 @@ describe("ActivityCreator", () => {
     fireEvent.click(approveButton!);
 
     // Wait for activity to be created
-    await waitFor(() => {
-      expect(activityService.createPoseActivity).toHaveBeenCalledWith(
-        [{ x: 0.5, y: 0.5, z: 0.1, visibility: 0.9 }],
-        expect.objectContaining({
-          name: "Test Pose",
-          type: "pose",
-          createdBy: "trainer",
-          isPublic: true,
-        })
-      );
-      expect(onActivityCreated).toHaveBeenCalledWith("pose-123");
-    });
+    await waitFor(
+      () => {
+        expect(activityService.createPoseActivity).toHaveBeenCalledWith(
+          [{ x: 0.5, y: 0.5, z: 0.1, visibility: 0.9 }],
+          expect.objectContaining({
+            name: "Test Pose",
+            type: "pose",
+            createdBy: "trainer",
+            isPublic: true,
+          })
+        );
+        expect(onActivityCreated).toHaveBeenCalledWith("pose-123");
+      },
+      { timeout: 2000 }
+    ); // Increased timeout to account for 1s delay in approvePose
   });
 
   it("should handle movement recording successfully", async () => {
@@ -354,6 +361,18 @@ describe("ActivityCreator", () => {
     const startButton = container.querySelector("button") as HTMLButtonElement;
     fireEvent.click(startButton);
 
+    // Wait for review state
+    await waitFor(() => {
+      expect(container.textContent).toContain("Review Your Pose");
+    });
+
+    // Find and click the approve button
+    const approveButton = Array.from(container.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Approve")
+    );
+    fireEvent.click(approveButton!);
+
+    // Wait for success message
     await waitFor(() => {
       expect(container.textContent).toContain("Activity Created Successfully!");
       expect(container.textContent).toContain("Create Another");
@@ -373,6 +392,18 @@ describe("ActivityCreator", () => {
     const startButton = container.querySelector("button") as HTMLButtonElement;
     fireEvent.click(startButton);
 
+    // Wait for review state
+    await waitFor(() => {
+      expect(container.textContent).toContain("Review Your Pose");
+    });
+
+    // Find and click the approve button
+    const approveButton = Array.from(container.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Approve")
+    );
+    fireEvent.click(approveButton!);
+
+    // Wait for completion
     await waitFor(() => {
       expect(container.textContent).toContain("Create Another");
     });
