@@ -136,8 +136,21 @@ describe("ActivityCreator", () => {
     const startButton = container.querySelector("button") as HTMLButtonElement;
     fireEvent.click(startButton);
 
+    // Wait for pose to be captured and review state
     await waitFor(() => {
       expect(mediaPipeService.detectSinglePose).toHaveBeenCalled();
+      expect(container.textContent).toContain("Review Your Pose");
+    });
+
+    // Find and click the approve button
+    const approveButton = Array.from(container.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Approve")
+    );
+    expect(approveButton).toBeDefined();
+    fireEvent.click(approveButton!);
+
+    // Wait for activity to be created
+    await waitFor(() => {
       expect(activityService.createPoseActivity).toHaveBeenCalledWith(
         [{ x: 0.5, y: 0.5, z: 0.1, visibility: 0.9 }],
         expect.objectContaining({
@@ -216,6 +229,45 @@ describe("ActivityCreator", () => {
       );
       expect(onActivityCreated).toHaveBeenCalledWith("movement-123");
     });
+  });
+
+  it("should allow retaking a pose", async () => {
+    const onActivityCreated = vi.fn();
+    const { container } = render(
+      <ActivityCreator onActivityCreated={onActivityCreated} />
+    );
+
+    // Fill in activity name
+    const nameInput = container.querySelector(
+      'input[type="text"]'
+    ) as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "Test Pose" } });
+
+    // Start recording
+    const startButton = container.querySelector("button") as HTMLButtonElement;
+    fireEvent.click(startButton);
+
+    // Wait for review state
+    await waitFor(() => {
+      expect(container.textContent).toContain("Review Your Pose");
+    });
+
+    // Find and click the retake button
+    const retakeButton = Array.from(container.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Retake")
+    );
+    expect(retakeButton).toBeDefined();
+    fireEvent.click(retakeButton!);
+
+    // Should return to idle state
+    await waitFor(() => {
+      expect(container.textContent).toContain("Start Recording");
+      expect(container.textContent).not.toContain("Review Your Pose");
+    });
+
+    // Activity should not have been created
+    expect(activityService.createPoseActivity).not.toHaveBeenCalled();
+    expect(onActivityCreated).not.toHaveBeenCalled();
   });
 
   it("should handle pose detection errors", async () => {
@@ -374,7 +426,8 @@ describe("ActivityCreator", () => {
     expect(container.textContent).toContain(
       "Enter a name for your pose activity"
     );
-    expect(container.textContent).toContain("hold your pose");
+    expect(container.textContent).toContain("Hold your pose");
+    expect(container.textContent).toContain("Review the captured pose");
   });
 
   it("should show instructions for movement type", () => {

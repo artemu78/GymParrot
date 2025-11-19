@@ -52,6 +52,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   });
   const [error, setError] = useState<string | null>(null);
   const [isTracking, setIsTracking] = useState(false);
+  const [isCameraTesting, setIsCameraTesting] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopTrackingRef = useRef<(() => void) | null>(null);
@@ -276,9 +277,58 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     setComparisonResult(null);
   }, [stopPractice]);
 
+  const testCamera = useCallback(async () => {
+    if (!videoRef.current) return;
+
+    try {
+      setIsCameraTesting(true);
+      clearError();
+
+      // Initialize camera and pose detection
+      await mediaPipeService.initializePoseLandmarker();
+      await webcamService.startVideoStream(videoRef.current);
+
+      // Start tracking to show landmarks
+      const stopTracking = await mediaPipeService.startMovementTracking(
+        videoRef.current,
+        (landmarks) => {
+          setCurrentLandmarks(landmarks);
+        },
+        {
+          duration: 30000, // 30 seconds test
+          onComplete: () => {
+            setIsCameraTesting(false);
+            setCurrentLandmarks([]);
+          },
+          onError: (error) => {
+            handleError(error.message);
+            setIsCameraTesting(false);
+            setCurrentLandmarks([]);
+          },
+        }
+      );
+
+      stopTrackingRef.current = stopTracking;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to test camera";
+      handleError(message);
+      setIsCameraTesting(false);
+    }
+  }, [clearError, handleError]);
+
+  const stopCameraTest = useCallback(() => {
+    if (stopTrackingRef.current) {
+      stopTrackingRef.current();
+      stopTrackingRef.current = null;
+    }
+    setIsCameraTesting(false);
+    setCurrentLandmarks([]);
+  }, []);
+
   const getDifficultyColor = (level: DifficultyLevel) => {
     switch (level) {
-      case "easy":
+      case "soft":
         return "text-green-600 bg-green-100";
       case "medium":
         return "text-yellow-600 bg-yellow-100";
@@ -430,19 +480,19 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
               Difficulty Level
             </label>
             <div className="flex space-x-3">
-              {(["easy", "medium", "hard"] as DifficultyLevel[]).map(
+              {(["soft", "medium", "hard"] as DifficultyLevel[]).map(
                 (level) => (
                   <button
                     key={level}
                     onClick={() => setDifficulty(level)}
-                    disabled={isTracking}
+                    disabled={isTracking || isCameraTesting}
                     className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                       difficulty === level
                         ? getDifficultyColor(level)
                         : "text-gray-600 bg-gray-100 hover:bg-gray-200"
-                    } ${isTracking ? "opacity-50 cursor-not-allowed" : ""}`}
+                    } ${isTracking || isCameraTesting ? "opacity-50 cursor-not-allowed" : ""}`}
                   >
-                    {level.charAt(0).toUpperCase() + level.slice(1)}
+                    {level === "soft" ? "Easy" : level.charAt(0).toUpperCase() + level.slice(1)}
                   </button>
                 )
               )}
@@ -522,13 +572,46 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
               {/* Practice Controls */}
               <div className="space-y-4">
-                {practiceState === "ready" && (
-                  <button
-                    onClick={startPractice}
-                    className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 font-medium"
-                  >
-                    Start Practice
-                  </button>
+                {practiceState === "ready" && !isCameraTesting && (
+                  <div className="space-y-3">
+                    <button
+                      onClick={startPractice}
+                      className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 font-medium"
+                    >
+                      Start Practice
+                    </button>
+                    <button
+                      onClick={testCamera}
+                      className="w-full px-6 py-3 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 font-medium"
+                    >
+                      Test Camera
+                    </button>
+                  </div>
+                )}
+
+                {isCameraTesting && (
+                  <div className="space-y-3">
+                    <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+                      <div className="flex items-center">
+                        <svg
+                          className="w-5 h-5 text-blue-600 mr-2"
+                          fill="currentColor"
+                          viewBox="0 0 20 20"
+                        >
+                          <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
+                        </svg>
+                        <span className="text-sm font-medium text-blue-800">
+                          Camera test in progress... Move around to see pose detection
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={stopCameraTest}
+                      className="w-full px-6 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 font-medium"
+                    >
+                      Stop Test
+                    </button>
+                  </div>
                 )}
 
                 {practiceState === "practicing" && (

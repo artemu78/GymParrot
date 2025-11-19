@@ -19,6 +19,8 @@ type RecordingState =
   | "idle"
   | "preparing"
   | "countdown"
+  | "capturing"
+  | "reviewing"
   | "recording"
   | "processing"
   | "completed"
@@ -35,10 +37,13 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [recordingProgress, setRecordingProgress] = useState(0);
   const [currentLandmarks, setCurrentLandmarks] = useState<PoseLandmark[]>([]);
+  const [capturedLandmarks, setCapturedLandmarks] = useState<PoseLandmark[]>([]);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [countdownValue, setCountdownValue] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const [countdownDelay, setCountdownDelay] = useState(3);
+  const [isCameraActive, setIsCameraActive] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const recordingDataRef = useRef<TimestampedLandmarks[]>([]);
@@ -61,28 +66,11 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
 
   const handleVideoReady = useCallback(
     async (video: HTMLVideoElement) => {
-      // Prevent multiple initializations
-      if (isInitializedRef.current) return;
-
-      try {
-        isInitializedRef.current = true;
-
-        // Initialize MediaPipe when video is ready
-        await mediaPipeService.initializePoseLandmarker();
-
-        // Automatically start the camera when video element is ready
-        clearError();
-        await webcamService.startVideoStream(video);
-      } catch (error) {
-        isInitializedRef.current = false; // Reset on error
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to initialize pose detection or start camera";
-        handleError(message);
-      }
+      // Just store the video reference, don't auto-start camera
+      // Camera will be started when user clicks "Test Camera" or "Start Recording"
+      videoRef.current = video;
     },
-    [handleError, clearError]
+    []
   );
 
   const startCamera = useCallback(async () => {
@@ -98,6 +86,7 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
       }
 
       await webcamService.startVideoStream(videoRef.current);
+      setIsCameraActive(true);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to start camera";
@@ -108,8 +97,17 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
   const stopCamera = useCallback(() => {
     webcamService.stopVideoStream();
     setCurrentLandmarks([]);
+    setIsCameraActive(false);
     isInitializedRef.current = false; // Reset initialization flag
   }, []);
+
+  const toggleCamera = useCallback(async () => {
+    if (isCameraActive) {
+      stopCamera();
+    } else {
+      await startCamera();
+    }
+  }, [isCameraActive, stopCamera, startCamera]);
 
   const startCountdown = useCallback(async () => {
     return new Promise<void>((resolve) => {
@@ -125,14 +123,18 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
       setCountdownValue(count);
 
       const countdown = () => {
-        if (count > 1) {
+        if (count > 0) {
           count--;
           setCountdownValue(count);
-          countdownTimeoutRef.current = window.setTimeout(countdown, 1000);
-        } else {
-          setCountdownValue(0);
-          setRecordingState("recording");
-          resolve();
+          if (count === 0) {
+            // Show "POSE!" message for a brief moment before resolving
+            countdownTimeoutRef.current = window.setTimeout(() => {
+              setRecordingState("recording");
+              resolve();
+            }, 500);
+          } else {
+            countdownTimeoutRef.current = window.setTimeout(countdown, 1000);
+          }
         }
       };
 
@@ -149,6 +151,30 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
     setRecordingState("idle");
   }, []);
 
+  const captureImageFromVideo = useCallback((video: HTMLVideoElement): string => {
+    // In test environment, return a mock data URL
+    if (process.env.NODE_ENV === 'test') {
+      return 'data:image/jpeg;base64,mock-image-data';
+    }
+    
+    // Create a canvas to capture the video frame
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Failed to get canvas context');
+    }
+    
+    // Draw the current video frame WITHOUT mirroring
+    // MediaPipe processes the non-mirrored video, so landmarks match non-mirrored image
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // Convert to data URL
+    return canvas.toDataURL('image/jpeg', 0.95);
+  }, []);
+
   const startPoseRecording = useCallback(async () => {
     if (!videoRef.current || recordingState !== "idle") return;
 
@@ -161,6 +187,12 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
 
       // Start countdown before recording
       await startCountdown();
+
+      // Show capturing state with visual feedback
+      setRecordingState("capturing");
+
+      // Small delay to let user see the capturing state
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
       // Detect single pose after countdown
       const result = await mediaPipeService.detectSinglePose(videoRef.current);
@@ -178,28 +210,16 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
         throw new Error(`Pose quality issues: ${validation.issues.join(", ")}`);
       }
 
+      // Capture the image from video
+      const imageDataUrl = captureImageFromVideo(videoRef.current);
+
+      // Store captured landmarks, image, and show review state
+      setCapturedLandmarks(landmarks);
       setCurrentLandmarks(landmarks);
-      setRecordingState("processing");
+      setCapturedImage(imageDataUrl);
+      setRecordingState("reviewing");
 
-      // Create pose activity
-      const metadata: ActivityMetadata = {
-        name: activityName || `Pose Activity ${Date.now()}`,
-        type: "pose",
-        createdBy: "trainer", // In production, this would come from auth
-        isPublic: true,
-      };
-
-      const activityId = await activityService.createPoseActivity(
-        landmarks,
-        metadata
-      );
-
-      setRecordingState("completed");
-
-      // Release camera after successful recording
-      stopCamera();
-
-      onActivityCreated?.(activityId);
+      // Don't proceed automatically - wait for user approval
     } catch (error) {
       // Cancel countdown and release camera on error
       cancelCountdown();
@@ -216,10 +236,59 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
     stopCamera,
     startCountdown,
     cancelCountdown,
+    captureImageFromVideo,
+    handleError,
+  ]);
+
+  const approvePose = useCallback(async () => {
+    if (recordingState !== "reviewing" || capturedLandmarks.length === 0) return;
+
+    try {
+      setRecordingState("processing");
+
+      // Create pose activity
+      const metadata: ActivityMetadata = {
+        name: activityName || `Pose Activity ${Date.now()}`,
+        type: "pose",
+        createdBy: "trainer", // In production, this would come from auth
+        isPublic: true,
+      };
+
+      const activityId = await activityService.createPoseActivity(
+        capturedLandmarks,
+        metadata
+      );
+
+      setRecordingState("completed");
+
+      // Show success state briefly before navigating
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Release camera after successful recording
+      stopCamera();
+
+      onActivityCreated?.(activityId);
+    } catch (error) {
+      stopCamera();
+      const message =
+        error instanceof Error ? error.message : "Failed to save pose";
+      handleError(message);
+    }
+  }, [
+    recordingState,
+    capturedLandmarks,
     activityName,
+    stopCamera,
     onActivityCreated,
     handleError,
   ]);
+
+  const retakePose = useCallback(() => {
+    setCapturedLandmarks([]);
+    setCurrentLandmarks([]);
+    setCapturedImage(null);
+    setRecordingState("idle");
+  }, []);
 
   const startMovementRecording = useCallback(async () => {
     if (!videoRef.current || recordingState !== "idle") return;
@@ -343,6 +412,8 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
     setActivityName("");
     setError(null);
     setCurrentLandmarks([]);
+    setCapturedLandmarks([]);
+    setCapturedImage(null);
     setCountdownValue(0);
     setRecordingState("idle");
   }, [stopRecording, stopCamera]);
@@ -352,6 +423,7 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
   const isRecording = recordingState === "recording";
   const isProcessing = recordingState === "processing";
   const isCountdown = recordingState === "countdown";
+  const isCapturing = recordingState === "capturing";
 
   return (
     <div className={`max-w-4xl mx-auto p-6 ${className}`}>
@@ -420,7 +492,7 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
                 onChange={(e) => setActivityName(e.target.value)}
                 placeholder="Enter activity name..."
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                disabled={recordingState !== "idle"}
+                disabled={recordingState !== "idle" && recordingState !== "reviewing"}
               />
             </div>
 
@@ -524,30 +596,148 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
           )}
 
           {/* Camera Preview */}
-          <div className="mb-6 relative flex justify-center">
-            <WebcamPreview
-              ref={videoRef}
-              isActive={true}
-              showLandmarks={true}
-              landmarks={currentLandmarks}
-              isRecording={isRecording}
-              recordingProgress={recordingProgress}
-              onVideoReady={handleVideoReady}
-              onError={handleError}
-              className=""
-              width={640}
-              height={480}
-            />
-
-            {/* Countdown Overlay */}
-            {recordingState === "countdown" && countdownValue > 0 && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-lg">
-                <div className="text-center">
-                  <div className="text-8xl font-bold text-white mb-4 animate-pulse">
-                    {countdownValue}
+          <div className="mb-6 flex flex-col items-center">
+            {recordingState === "reviewing" && capturedImage ? (
+              <>
+                {/* Top Alert - Above Image */}
+                <div className="mb-3" style={{ width: 640 }}>
+                  <div className="bg-blue-600 text-white px-4 py-2 rounded-lg shadow-lg">
+                    <div className="flex items-center justify-center">
+                      <svg
+                        className="w-5 h-5 mr-2"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      <span className="text-sm font-medium">📸 Captured Photo with Pose Detection</span>
+                    </div>
                   </div>
-                  <p className="text-xl text-white">Get ready to pose!</p>
                 </div>
+
+                {/* Captured Image */}
+                <div className="relative bg-gray-900 rounded-lg overflow-hidden shadow-xl border-4 border-blue-500" style={{ width: 640, height: 480 }}>
+                  <img
+                    src={capturedImage}
+                    alt="Captured pose"
+                    className="w-full h-full object-cover"
+                  />
+                  {/* Overlay landmarks on the captured image */}
+                  {capturedLandmarks.length > 0 && (
+                    <div className="absolute inset-0">
+                      <svg
+                        className="absolute inset-0 pointer-events-none"
+                        width={640}
+                        height={480}
+                        viewBox="0 0 640 480"
+                      >
+                        {/* Draw connections */}
+                        {[
+                          [0, 1], [1, 2], [2, 3], [3, 7], [0, 4], [4, 5], [5, 6], [6, 8],
+                          [9, 10], [11, 12], [11, 13], [13, 15], [15, 17], [15, 19], [15, 21],
+                          [12, 14], [14, 16], [16, 18], [16, 20], [16, 22],
+                          [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [27, 29], [29, 31],
+                          [24, 26], [26, 28], [28, 30], [30, 32]
+                        ].map(([startIdx, endIdx], index) => {
+                          const startLandmark = capturedLandmarks[startIdx];
+                          const endLandmark = capturedLandmarks[endIdx];
+                          if (!startLandmark || !endLandmark || 
+                              (startLandmark.visibility || 1) < 0.5 || 
+                              (endLandmark.visibility || 1) < 0.5) {
+                            return null;
+                          }
+                          return (
+                            <line
+                              key={index}
+                              x1={startLandmark.x * 640}
+                              y1={startLandmark.y * 480}
+                              x2={endLandmark.x * 640}
+                              y2={endLandmark.y * 480}
+                              stroke="#00ff00"
+                              strokeWidth="3"
+                              opacity="0.8"
+                            />
+                          );
+                        })}
+                        {/* Draw landmarks */}
+                        {capturedLandmarks.map((landmark, index) => {
+                          if ((landmark.visibility || 1) < 0.5) return null;
+                          return (
+                            <circle
+                              key={index}
+                              cx={landmark.x * 640}
+                              cy={landmark.y * 480}
+                              r="4"
+                              fill="#ff0000"
+                              opacity="0.9"
+                            />
+                          );
+                        })}
+                      </svg>
+                    </div>
+                  )}
+                </div>
+
+                {/* Bottom Alert - Below Image */}
+                <div className="mt-3" style={{ width: 640 }}>
+                  <div className="bg-green-600 text-white px-3 py-2 rounded-lg shadow-lg text-center">
+                    <span className="text-xs font-medium">✓ Pose landmarks detected and overlaid</span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              // Show live video feed
+              <div className="relative">
+                <WebcamPreview
+                  ref={videoRef}
+                  isActive={true}
+                  showLandmarks={true}
+                  landmarks={currentLandmarks}
+                  isRecording={isRecording}
+                  recordingProgress={recordingProgress}
+                  onVideoReady={handleVideoReady}
+                  onError={handleError}
+                  className=""
+                  width={640}
+                  height={480}
+                />
+
+                {/* Countdown Overlay */}
+                {recordingState === "countdown" && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-lg">
+                    <div className="text-center">
+                      {countdownValue > 0 ? (
+                        <>
+                          <div className="text-8xl font-bold text-white mb-4 animate-pulse">
+                            {countdownValue}
+                          </div>
+                          <p className="text-xl text-white">Get ready to pose!</p>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-8xl font-bold text-green-400 mb-4 animate-bounce">
+                            POSE!
+                          </div>
+                          <p className="text-xl text-white">Hold your position!</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Capturing Flash Effect */}
+                {recordingState === "capturing" && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white rounded-lg animate-flash">
+                    <div className="text-center">
+                      <div className="text-6xl mb-4">📸</div>
+                      <p className="text-2xl font-bold text-gray-800">Capturing!</p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -569,21 +759,64 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
                   Start Recording
                 </button>
                 <button
-                  onClick={startCamera}
-                  className="px-6 py-3 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 font-medium"
+                  onClick={toggleCamera}
+                  className={`px-6 py-3 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 font-medium ${
+                    isCameraActive
+                      ? "bg-red-600 hover:bg-red-700 focus:ring-red-500"
+                      : "bg-gray-600 hover:bg-gray-700 focus:ring-gray-500"
+                  }`}
                 >
-                  Test Camera
+                  {isCameraActive ? "Turn Off Camera" : "Test Camera"}
                 </button>
               </>
             )}
 
-            {(isRecording || isCountdown) && (
+            {(isRecording || isCountdown || isCapturing) && (
               <button
                 onClick={stopRecording}
                 className="px-6 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 font-medium"
+                disabled={isCapturing}
               >
-                {isCountdown ? "Cancel" : "Stop Recording"}
+                {isCountdown ? "Cancel" : isCapturing ? "Capturing..." : "Stop Recording"}
               </button>
+            )}
+
+            {recordingState === "reviewing" && (
+              <div className="flex flex-col items-center space-y-4 w-full max-w-md">
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-4 w-full">
+                  <div className="flex items-center mb-2">
+                    <svg
+                      className="h-5 w-5 text-blue-600 mr-2"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    <span className="font-medium text-blue-800">Review Your Pose</span>
+                  </div>
+                  <p className="text-sm text-blue-700">
+                    Check if your pose looks good. You can approve it to create the activity or retake if needed.
+                  </p>
+                </div>
+                <div className="flex space-x-3 w-full">
+                  <button
+                    onClick={approvePose}
+                    className="flex-1 px-6 py-3 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 font-medium"
+                  >
+                    ✓ Approve & Create
+                  </button>
+                  <button
+                    onClick={retakePose}
+                    className="flex-1 px-6 py-3 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 font-medium"
+                  >
+                    ↻ Retake
+                  </button>
+                </div>
+              </div>
             )}
 
             {isProcessing && (
@@ -644,7 +877,8 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
                     • Click "Start Recording" - you'll see a {countdownDelay}
                     -second countdown
                   </li>
-                  <li>• hold your pose when the countdown reaches zero</li>
+                  <li>• Hold your pose when the countdown reaches zero</li>
+                  <li>• Review the captured pose and approve or retake</li>
                   <li>
                     • Make sure your whole body is visible for best results
                   </li>
