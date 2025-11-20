@@ -283,14 +283,33 @@ describe("PracticeInterface", () => {
         mockStopTracking
       );
 
-      render(<PracticeInterface activityId="pose-1" />);
+      const { container } = render(<PracticeInterface activityId="pose-1" />);
 
       await waitFor(() => {
-        const startButton = screen.getByText("Start Practice");
-        fireEvent.click(startButton);
+        expect(screen.getByText("Start Practice")).toBeInTheDocument();
       });
 
-      expect(mediaPipeService.startMovementTracking).toHaveBeenCalled();
+      // Mock video element with valid dimensions
+      const video = container.querySelector("video");
+      if (video) {
+        Object.defineProperty(video, "videoWidth", {
+          value: 640,
+          writable: true,
+          configurable: true,
+        });
+        Object.defineProperty(video, "videoHeight", {
+          value: 480,
+          writable: true,
+          configurable: true,
+        });
+      }
+
+      const startButton = screen.getByText("Start Practice");
+      fireEvent.click(startButton);
+
+      await waitFor(() => {
+        expect(mediaPipeService.startMovementTracking).toHaveBeenCalled();
+      });
     });
 
     it("should show stop and reset buttons during practice", async () => {
@@ -319,19 +338,45 @@ describe("PracticeInterface", () => {
         mockStopTracking
       );
 
-      render(<PracticeInterface activityId="pose-1" />);
+      const { container } = render(<PracticeInterface activityId="pose-1" />);
 
       await waitFor(() => {
-        const startButton = screen.getByText("Start Practice");
-        fireEvent.click(startButton);
+        expect(screen.getByText("Start Practice")).toBeInTheDocument();
       });
+
+      // Mock video element with valid dimensions
+      const video = container.querySelector("video");
+      if (video) {
+        Object.defineProperty(video, "videoWidth", {
+          value: 640,
+          writable: true,
+          configurable: true,
+        });
+        Object.defineProperty(video, "videoHeight", {
+          value: 480,
+          writable: true,
+          configurable: true,
+        });
+      }
+
+      const startButton = screen.getByText("Start Practice");
+      fireEvent.click(startButton);
 
       await waitFor(() => {
-        const stopButton = screen.getByText("Stop Practice");
-        fireEvent.click(stopButton);
+        expect(screen.getByText("Stop Practice")).toBeInTheDocument();
       });
 
-      expect(mockStopTracking).toHaveBeenCalled();
+      // Wait for tracking to actually start
+      await waitFor(() => {
+        expect(mediaPipeService.startMovementTracking).toHaveBeenCalled();
+      });
+
+      const stopButton = screen.getByText("Stop Practice");
+      fireEvent.click(stopButton);
+
+      await waitFor(() => {
+        expect(mockStopTracking).toHaveBeenCalled();
+      });
 
       await waitFor(() => {
         expect(screen.getByText("Start Practice")).toBeInTheDocument();
@@ -926,12 +971,19 @@ describe("PracticeInterface", () => {
         fireEvent.click(testButton);
       });
 
+      // Wait for tracking to actually start
+      await waitFor(() => {
+        expect(mediaPipeService.startMovementTracking).toHaveBeenCalled();
+      });
+
       await waitFor(() => {
         const stopButton = screen.getByText("Stop Test");
         fireEvent.click(stopButton);
       });
 
-      expect(mockStopTracking).toHaveBeenCalled();
+      await waitFor(() => {
+        expect(mockStopTracking).toHaveBeenCalled();
+      });
 
       await waitFor(() => {
         expect(screen.getByText("Test Camera")).toBeInTheDocument();

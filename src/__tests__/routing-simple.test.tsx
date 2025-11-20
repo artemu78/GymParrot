@@ -19,21 +19,21 @@ describe("Routing Configuration", () => {
   describe("Route Definitions", () => {
     it("should have all required routes defined", () => {
       const routes = router.routeTree.children;
-      const routePaths = routes.map((route: any) => route.path);
+      const routeIds = routes.map((route: any) => route.id);
 
-      expect(routePaths).toContain("/");
-      expect(routePaths).toContain("/activities");
-      expect(routePaths).toContain("/create");
-      expect(routePaths).toContain("/practice/$activityId");
-      expect(routePaths).toContain("/activity/$activityId");
+      expect(routeIds).toContain("/");
+      expect(routeIds).toContain("/activities");
+      expect(routeIds).toContain("/create");
+      expect(routeIds).toContain("/practice/$activityId");
+      expect(routeIds).toContain("/activity/$activityId");
     });
 
     it("should handle parameterized routes", () => {
       const practiceRoute = router.routeTree.children.find(
-        (route: any) => route.path === "/practice/$activityId"
+        (route: any) => route.id === "/practice/$activityId"
       );
       const activityRoute = router.routeTree.children.find(
-        (route: any) => route.path === "/activity/$activityId"
+        (route: any) => route.id === "/activity/$activityId"
       );
 
       expect(practiceRoute).toBeDefined();
@@ -82,8 +82,8 @@ describe("Routing Configuration", () => {
       });
 
       expect(router.state.location.pathname).toBe("/activities");
-      expect(router.state.location.search).toContain("type=pose");
-      expect(router.state.location.search).toContain("difficulty=hard");
+      expect(router.state.location.searchStr).toContain("type=pose");
+      expect(router.state.location.searchStr).toContain("difficulty=hard");
     });
 
     it("should handle search parameters in practice route", async () => {
@@ -94,8 +94,8 @@ describe("Routing Configuration", () => {
       });
 
       expect(router.state.location.pathname).toBe("/practice/test-activity-1");
-      expect(router.state.location.search).toContain("difficulty=medium");
-      expect(router.state.location.search).toContain("mode=practice");
+      expect(router.state.location.searchStr).toContain("difficulty=medium");
+      expect(router.state.location.searchStr).toContain("mode=practice");
     });
 
     it("should handle search parameters in create route", async () => {
@@ -105,7 +105,7 @@ describe("Routing Configuration", () => {
       });
 
       expect(router.state.location.pathname).toBe("/create");
-      expect(router.state.location.search).toContain("type=movement");
+      expect(router.state.location.searchStr).toContain("type=movement");
     });
   });
 
@@ -117,8 +117,8 @@ describe("Routing Configuration", () => {
       });
 
       expect(router.state.location.pathname).toBe("/activities");
-      expect(router.state.location.search).toContain("type=pose");
-      expect(router.state.location.search).toContain("difficulty=soft");
+      expect(router.state.location.searchStr).toContain("type=pose");
+      expect(router.state.location.searchStr).toContain("difficulty=soft");
     });
 
     it("should support direct navigation to practice with difficulty", async () => {
@@ -129,8 +129,8 @@ describe("Routing Configuration", () => {
       });
 
       expect(router.state.location.pathname).toBe("/practice/pose-activity-1");
-      expect(router.state.location.search).toContain("difficulty=hard");
-      expect(router.state.location.search).toContain("mode=demo");
+      expect(router.state.location.searchStr).toContain("difficulty=hard");
+      expect(router.state.location.searchStr).toContain("mode=demo");
     });
 
     it("should support direct navigation to create with type", async () => {
@@ -140,7 +140,7 @@ describe("Routing Configuration", () => {
       });
 
       expect(router.state.location.pathname).toBe("/create");
-      expect(router.state.location.search).toContain("type=pose");
+      expect(router.state.location.searchStr).toContain("type=pose");
     });
   });
 
@@ -152,8 +152,8 @@ describe("Routing Configuration", () => {
         search: { type: "movement", difficulty: "medium" },
       });
 
-      expect(router.state.location.search).toContain("type=movement");
-      expect(router.state.location.search).toContain("difficulty=medium");
+      expect(router.state.location.searchStr).toContain("type=movement");
+      expect(router.state.location.searchStr).toContain("difficulty=medium");
 
       // Navigate to practice
       await router.navigate({
@@ -163,7 +163,7 @@ describe("Routing Configuration", () => {
       });
 
       expect(router.state.location.pathname).toBe("/practice/test-activity");
-      expect(router.state.location.search).toContain("difficulty=medium");
+      expect(router.state.location.searchStr).toContain("difficulty=medium");
     });
 
     it("should handle URL updates for difficulty changes", async () => {
@@ -181,19 +181,19 @@ describe("Routing Configuration", () => {
         replace: true,
       });
 
-      expect(router.state.location.search).toContain("difficulty=hard");
-      expect(router.state.location.search).toContain("mode=practice");
+      expect(router.state.location.searchStr).toContain("difficulty=hard");
+      expect(router.state.location.searchStr).toContain("mode=practice");
     });
 
     it("should handle completion state navigation", async () => {
       await router.navigate({
         to: "/activities",
-        search: { completed: "test-activity", score: "92" },
+        search: { completed: "test-activity", score: 92 },
       });
 
       expect(router.state.location.pathname).toBe("/activities");
-      expect(router.state.location.search).toContain("completed=test-activity");
-      expect(router.state.location.search).toContain("score=92");
+      expect(router.state.location.searchStr).toContain("completed=test-activity");
+      expect(router.state.location.searchStr).toContain("score=92");
     });
 
     it("should handle error state navigation", async () => {
@@ -203,7 +203,7 @@ describe("Routing Configuration", () => {
       });
 
       expect(router.state.location.pathname).toBe("/activities");
-      expect(router.state.location.search).toContain("error=practice-failed");
+      expect(router.state.location.searchStr).toContain("error=practice-failed");
     });
   });
 
@@ -260,14 +260,16 @@ describe("Routing Configuration", () => {
       });
 
       expect(router.state.location.pathname).toBe("/activities");
-      expect(router.state.location.search).toContain("type=pose");
+      expect(router.state.location.searchStr).toContain("type=pose");
     });
   });
 
   describe("Route Matching", () => {
     it("should match exact routes", async () => {
       await router.navigate({ to: "/" });
-      expect(router.state.matches[0].routeId).toBe("/");
+      expect(
+        router.state.matches.some((match: any) => match.routeId === "/")
+      ).toBe(true);
 
       await router.navigate({ to: "/activities" });
       expect(

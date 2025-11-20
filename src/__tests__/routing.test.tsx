@@ -81,21 +81,23 @@ describe("Routing and Navigation", () => {
     vi.clearAllMocks();
   });
 
-  const renderWithRouter = (initialLocation = "/") => {
-    router.navigate({ to: initialLocation });
+  const renderWithRouter = async (initialLocation = "/") => {
+    await router.navigate({ to: initialLocation });
     return render(<RouterProvider router={router} />);
   };
 
   describe("Basic Route Navigation", () => {
     it("should render home page by default", async () => {
-      renderWithRouter("/");
+      await renderWithRouter("/");
 
-      expect(screen.getByText(/Welcome to/)).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText(/Welcome to/)).toBeInTheDocument();
+      });
       expect(screen.getByText("GymParrot")).toBeInTheDocument();
     });
 
     it("should navigate to activities page", async () => {
-      renderWithRouter("/activities");
+      await renderWithRouter("/activities");
 
       await waitFor(() => {
         expect(screen.getByTestId("activity-browser")).toBeInTheDocument();
@@ -103,7 +105,7 @@ describe("Routing and Navigation", () => {
     });
 
     it("should navigate to create page", async () => {
-      renderWithRouter("/create");
+      await renderWithRouter("/create");
 
       await waitFor(() => {
         expect(screen.getByTestId("activity-creator")).toBeInTheDocument();
@@ -111,7 +113,7 @@ describe("Routing and Navigation", () => {
     });
 
     it("should navigate to practice page with activity ID", async () => {
-      renderWithRouter("/practice/test-activity-1");
+      await renderWithRouter("/practice/test-activity-1");
 
       await waitFor(() => {
         expect(screen.getByTestId("practice-interface")).toBeInTheDocument();
@@ -122,10 +124,10 @@ describe("Routing and Navigation", () => {
     });
 
     it("should navigate to activity detail page", async () => {
-      renderWithRouter("/activity/test-activity-1");
+      await renderWithRouter("/activity/test-activity-1");
 
       await waitFor(() => {
-        expect(screen.getByText("Test Activity")).toBeInTheDocument();
+        expect(screen.getByRole("heading", { name: "Test Activity" })).toBeInTheDocument();
         expect(screen.getByText("Preview Activity")).toBeInTheDocument();
       });
     });
@@ -133,7 +135,7 @@ describe("Routing and Navigation", () => {
 
   describe("Deep Linking with Search Parameters", () => {
     it("should handle activities page with type filter", async () => {
-      renderWithRouter("/activities?type=pose");
+      await renderWithRouter("/activities?type=pose");
 
       await waitFor(() => {
         expect(screen.getByText("Type: pose")).toBeInTheDocument();
@@ -141,7 +143,7 @@ describe("Routing and Navigation", () => {
     });
 
     it("should handle activities page with difficulty filter", async () => {
-      renderWithRouter("/activities?difficulty=hard");
+      await renderWithRouter("/activities?difficulty=hard");
 
       await waitFor(() => {
         expect(screen.getByText("Difficulty: hard")).toBeInTheDocument();
@@ -149,7 +151,7 @@ describe("Routing and Navigation", () => {
     });
 
     it("should handle practice page with difficulty parameter", async () => {
-      renderWithRouter("/practice/test-activity-1?difficulty=hard&mode=demo");
+      await renderWithRouter("/practice/test-activity-1?difficulty=hard&mode=demo");
 
       await waitFor(() => {
         expect(screen.getByText("Difficulty: hard")).toBeInTheDocument();
@@ -158,7 +160,7 @@ describe("Routing and Navigation", () => {
     });
 
     it("should handle create page with initial type", async () => {
-      renderWithRouter("/create?type=movement");
+      await renderWithRouter("/create?type=movement");
 
       await waitFor(() => {
         expect(screen.getByText("Initial Type: movement")).toBeInTheDocument();
@@ -169,7 +171,7 @@ describe("Routing and Navigation", () => {
   describe("Navigation Flow", () => {
     it("should navigate from activities to practice when activity selected", async () => {
       const user = userEvent.setup();
-      renderWithRouter("/activities");
+      await renderWithRouter("/activities");
 
       await waitFor(() => {
         expect(screen.getByTestId("activity-browser")).toBeInTheDocument();
@@ -186,25 +188,27 @@ describe("Routing and Navigation", () => {
 
     it("should navigate from create to practice after activity creation", async () => {
       const user = userEvent.setup();
-      renderWithRouter("/create");
+      await renderWithRouter("/create");
 
       await waitFor(() => {
         expect(screen.getByTestId("activity-creator")).toBeInTheDocument();
       });
 
-      await user.click(screen.getByText("Create Activity"));
+      const createButton = screen.getByRole("button", { name: "Create Activity" });
+      await user.click(createButton);
 
       await waitFor(() => {
         expect(router.state.location.pathname).toBe(
           "/practice/new-activity-id"
         );
-        expect(router.state.location.search).toContain("mode=demo");
+        const href = router.state.location.href;
+        expect(href).toContain("mode=demo");
       });
     });
 
     it("should update URL when difficulty changes in practice", async () => {
       const user = userEvent.setup();
-      renderWithRouter("/practice/test-activity-1");
+      await renderWithRouter("/practice/test-activity-1");
 
       await waitFor(() => {
         expect(screen.getByTestId("practice-interface")).toBeInTheDocument();
@@ -213,13 +217,16 @@ describe("Routing and Navigation", () => {
       await user.click(screen.getByText("Set Hard"));
 
       await waitFor(() => {
-        expect(router.state.location.search).toContain("difficulty=hard");
+        expect(router.state.location.pathname).toBe("/practice/test-activity-1");
+        // Check if difficulty is in the search params
+        const href = router.state.location.href;
+        expect(href).toContain("difficulty=hard");
       });
     });
 
     it("should navigate back to activities with completion state", async () => {
       const user = userEvent.setup();
-      renderWithRouter("/practice/test-activity-1");
+      await renderWithRouter("/practice/test-activity-1");
 
       await waitFor(() => {
         expect(screen.getByTestId("practice-interface")).toBeInTheDocument();
@@ -229,10 +236,9 @@ describe("Routing and Navigation", () => {
 
       await waitFor(() => {
         expect(router.state.location.pathname).toBe("/activities");
-        expect(router.state.location.search).toContain(
-          "completed=test-activity-1"
-        );
-        expect(router.state.location.search).toContain("score=85");
+        const href = router.state.location.href;
+        expect(href).toContain("completed=test-activity-1");
+        expect(href).toMatch(/score=.*85/); // Match score with or without quotes/encoding
       });
     });
   });
@@ -240,16 +246,22 @@ describe("Routing and Navigation", () => {
   describe("Navigation Links in Header", () => {
     it("should have working navigation links in header", async () => {
       const user = userEvent.setup();
-      renderWithRouter("/");
+      await renderWithRouter("/");
 
-      // Test Activities link
-      await user.click(screen.getByText("Browse Activities"));
+      await waitFor(() => {
+        expect(screen.getByText(/Welcome to/)).toBeInTheDocument();
+      });
+
+      // Test Activities link in header (not the main button)
+      const headerLinks = screen.getAllByText("Browse Activities");
+      await user.click(headerLinks[0]); // First one is in the header
       await waitFor(() => {
         expect(router.state.location.pathname).toBe("/activities");
       });
 
-      // Test Create link
-      await user.click(screen.getByText("Create Activity"));
+      // Test Create link in header
+      const createLinks = screen.getAllByText("Create Activity");
+      await user.click(createLinks[0]); // First one is in the header
       await waitFor(() => {
         expect(router.state.location.pathname).toBe("/create");
       });
@@ -265,13 +277,18 @@ describe("Routing and Navigation", () => {
   describe("Quick Action Links", () => {
     it("should have working quick action links on home page", async () => {
       const user = userEvent.setup();
-      renderWithRouter("/");
+      await renderWithRouter("/");
+
+      await waitFor(() => {
+        expect(screen.getByText(/Welcome to/)).toBeInTheDocument();
+      });
 
       // Test Browse Poses link
       await user.click(screen.getByText("Browse Poses →"));
       await waitFor(() => {
         expect(router.state.location.pathname).toBe("/activities");
-        expect(router.state.location.search).toContain("type=pose");
+        const href = router.state.location.href;
+        expect(href).toContain("type=pose");
       });
 
       // Navigate back to home
@@ -281,7 +298,8 @@ describe("Routing and Navigation", () => {
       await user.click(screen.getByText("Browse Movements →"));
       await waitFor(() => {
         expect(router.state.location.pathname).toBe("/activities");
-        expect(router.state.location.search).toContain("type=movement");
+        const href = router.state.location.href;
+        expect(href).toContain("type=movement");
       });
 
       // Navigate back to home
@@ -291,7 +309,8 @@ describe("Routing and Navigation", () => {
       await user.click(screen.getByText("Create Pose →"));
       await waitFor(() => {
         expect(router.state.location.pathname).toBe("/create");
-        expect(router.state.location.search).toContain("type=pose");
+        const href = router.state.location.href;
+        expect(href).toContain("type=pose");
       });
 
       // Navigate back to home
@@ -301,14 +320,15 @@ describe("Routing and Navigation", () => {
       await user.click(screen.getByText("Create Movement →"));
       await waitFor(() => {
         expect(router.state.location.pathname).toBe("/create");
-        expect(router.state.location.search).toContain("type=movement");
+        const href = router.state.location.href;
+        expect(href).toContain("type=movement");
       });
     });
   });
 
   describe("Error Handling", () => {
     it("should handle invalid activity ID in practice route", async () => {
-      renderWithRouter("/practice/invalid-id");
+      await renderWithRouter("/practice/invalid-id");
 
       await waitFor(() => {
         expect(screen.getByTestId("practice-interface")).toBeInTheDocument();
@@ -321,7 +341,7 @@ describe("Routing and Navigation", () => {
         new Error("Activity not found")
       );
 
-      renderWithRouter("/activity/invalid-id");
+      await renderWithRouter("/activity/invalid-id");
 
       await waitFor(() => {
         expect(
@@ -335,7 +355,7 @@ describe("Routing and Navigation", () => {
   describe("State Management", () => {
     it("should preserve filter state when navigating back to activities", async () => {
       const user = userEvent.setup();
-      renderWithRouter("/activities?type=pose&difficulty=hard");
+      await renderWithRouter("/activities?type=pose&difficulty=hard");
 
       await waitFor(() => {
         expect(screen.getByText("Type: pose")).toBeInTheDocument();
@@ -362,7 +382,7 @@ describe("Routing and Navigation", () => {
 
     it("should handle type changes in create page", async () => {
       const user = userEvent.setup();
-      renderWithRouter("/create");
+      await renderWithRouter("/create");
 
       await waitFor(() => {
         expect(screen.getByTestId("activity-creator")).toBeInTheDocument();
@@ -371,13 +391,17 @@ describe("Routing and Navigation", () => {
       await user.click(screen.getByText("Set Pose"));
 
       await waitFor(() => {
-        expect(router.state.location.search).toContain("type=pose");
+        expect(router.state.location.pathname).toBe("/create");
+        const href = router.state.location.href;
+        expect(href).toContain("type=pose");
       });
 
       await user.click(screen.getByText("Set Movement"));
 
       await waitFor(() => {
-        expect(router.state.location.search).toContain("type=movement");
+        expect(router.state.location.pathname).toBe("/create");
+        const href = router.state.location.href;
+        expect(href).toContain("type=movement");
       });
     });
   });

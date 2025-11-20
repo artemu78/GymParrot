@@ -4,7 +4,7 @@ import { z } from "zod";
 
 const practiceSearchSchema = z.object({
   difficulty: z.enum(["soft", "medium", "hard"]).optional(),
-  mode: z.enum(["practice", "demo"]).optional().default("practice"),
+  mode: z.enum(["practice", "demo"]).optional(),
 });
 
 export const Route = createFileRoute("/practice/$activityId")({
@@ -20,7 +20,9 @@ export const Route = createFileRoute("/practice/$activityId")({
 
 function Practice() {
   const { activityId } = Route.useParams();
-  const { difficulty, mode } = Route.useSearch();
+  const search = Route.useSearch();
+  const difficulty = search.difficulty;
+  const mode = search.mode || "practice";
   const navigate = useNavigate();
 
   const handleComplete = (score: number) => {

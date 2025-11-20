@@ -138,9 +138,9 @@ describe('WebcamService', () => {
     })
 
     it('should start video stream successfully', async () => {
-      // Mock successful video loading
+      // Mock successful video loading - need both loadedmetadata and loadeddata
       mockVideoElement.addEventListener.mockImplementation((event, handler) => {
-        if (event === 'loadeddata') {
+        if (event === 'loadedmetadata' || event === 'loadeddata') {
           setTimeout(() => handler(), 0)
         }
       })
@@ -156,7 +156,7 @@ describe('WebcamService', () => {
 
     it('should request camera access if no current stream', async () => {
       mockVideoElement.addEventListener.mockImplementation((event, handler) => {
-        if (event === 'loadeddata') {
+        if (event === 'loadedmetadata' || event === 'loadeddata') {
           setTimeout(() => handler(), 0)
         }
       })
@@ -172,7 +172,7 @@ describe('WebcamService', () => {
       vi.clearAllMocks()
 
       mockVideoElement.addEventListener.mockImplementation((event, handler) => {
-        if (event === 'loadeddata') {
+        if (event === 'loadedmetadata' || event === 'loadeddata') {
           setTimeout(() => handler(), 0)
         }
       })
@@ -200,7 +200,7 @@ describe('WebcamService', () => {
       await service.requestCameraAccess()
 
       mockVideoElement.addEventListener.mockImplementation((event, handler) => {
-        if (event === 'loadeddata') {
+        if (event === 'loadedmetadata' || event === 'loadeddata') {
           setTimeout(() => handler(), 0)
         }
       })
