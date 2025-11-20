@@ -298,7 +298,7 @@ describe('ActivityService', () => {
       const privateMetadata = { ...mockPoseMetadata, isPublic: false }
       await service.createPoseActivity(mockPoseLandmarks, privateMetadata)
 
-      const stats = service.getActivityStats()
+      const stats = await service.getActivityStats()
       
       expect(stats.totalActivities).toBe(3)
       expect(stats.poseActivities).toBe(2)
@@ -307,8 +307,8 @@ describe('ActivityService', () => {
       expect(stats.privateActivities).toBe(1)
     })
 
-    it('should return zero stats for empty service', () => {
-      const stats = service.getActivityStats()
+    it('should return zero stats for empty service', async () => {
+      const stats = await service.getActivityStats()
       
       expect(stats.totalActivities).toBe(0)
       expect(stats.poseActivities).toBe(0)
@@ -323,12 +323,12 @@ describe('ActivityService', () => {
       await service.createPoseActivity(mockPoseLandmarks, mockPoseMetadata)
       await service.createMovementActivity(mockMovementSequence, mockMovementMetadata)
 
-      service.clearAll()
+      await service.clearAll()
 
       const activities = await service.getActivities()
       expect(activities).toHaveLength(0)
       
-      const stats = service.getActivityStats()
+      const stats = await service.getActivityStats()
       expect(stats.totalActivities).toBe(0)
     })
   })

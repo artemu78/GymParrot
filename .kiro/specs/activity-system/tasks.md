@@ -43,13 +43,26 @@
   - Write tests for movement sequence capture
   - _Requirements: 2.2, 2.3, 2.5, 9.3_
 
+- [x] 6a. Implement browser-based storage service
+  - Create StorageService class wrapping IndexedDB operations
+  - Implement async/await interface for storage operations
+  - Add support for storing large base64-encoded images
+  - Implement quota exceeded error handling
+  - Add storage cleanup and management methods
+  - Create comprehensive documentation (STORAGE_README.md)
+  - Write unit tests for storage operations
+  - _Requirements: 8.1, 8.2, 8.5, 8.6, 8.7_
+
 - [x] 7. Implement activity storage service
-  - Create ActivityService class with DynamoDB integration
-  - Implement createPoseActivity and createMovementActivity methods
+  - Create StorageService class with IndexedDB integration
+  - Create ActivityService class using StorageService for persistence
+  - Implement createPoseActivity with image data storage
+  - Implement createMovementActivity methods
   - Add activity retrieval methods (getActivities, getActivityById)
-  - Implement error handling for database operations
-  - Write integration tests with DynamoDB local
-  - _Requirements: 8.1, 8.3, 8.4, 3.1_
+  - Add deleteActivity method for storage management
+  - Implement error handling for storage quota and operations
+  - Write integration tests with IndexedDB mocks
+  - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 3.1_
 
 - [x] 8. Implement pose comparison algorithms
   - Create ComparisonService with pose similarity calculation
@@ -69,12 +82,17 @@
 
 - [x] 10. Build ActivityCreator component for trainers
   - Create trainer interface with activity type selection (Pose/Moves)
-  - Implement recording controls and duration selection
-  - Add real-time feedback during recording process
-  - Integrate with MediaPipeService and ActivityService
+  - Implement manual camera toggle to conserve resources
+  - Add configurable countdown delay before pose capture
+  - Implement recording state machine (idle → preparing → countdown → capturing → reviewing → processing → completed)
+  - Add image capture from video frame (non-mirrored for landmark alignment)
+  - Create pose review interface with approve/retake options
+  - Implement automatic camera shutdown after completion
+  - Add real-time feedback during all recording stages
+  - Integrate with MediaPipeService, WebcamService, and ActivityService
   - Create success/error handling and user notifications
-  - Write component tests for trainer workflow
-  - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 8.3_
+  - Write comprehensive component tests for trainer workflow
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.1, 2.2, 8.3_
 
 - [x] 11. Build ActivityBrowser component
   - Create activity listing interface with type and difficulty filters
@@ -87,12 +105,18 @@
 
 - [x] 12. Build PracticeInterface component for trainees
   - Create practice mode interface with real-time pose comparison
-  - Implement difficulty level selection with immediate threshold updates
+  - Implement difficulty level selection (Soft/Easy, Medium, Hard) with immediate threshold updates
+  - Add "Test Camera" button for verifying pose detection setup
+  - Implement 30-second camera test mode with real-time landmark visualization
+  - Add video dimension validation before starting practice
+  - Implement MediaPipe ROI error prevention
   - Add visual feedback for pose matching success/failure
   - Create guidance display for pose correction suggestions
+  - Implement session statistics tracking (attempts, matches, best score)
   - Implement performance summary for completed activities
-  - Write component tests for trainee practice workflow
-  - _Requirements: 4.1, 4.2, 4.3, 4.4, 5.1, 5.2, 5.3, 5.4, 5.5_
+  - Write comprehensive component tests for trainee practice workflow
+  - Add unit tests for video dimension validation
+  - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9, 5.1, 5.2, 5.3, 5.4, 5.5_
 
 - [x] 13. Implement routing and navigation
   - Set up TanStack Router routes for activity creation, browsing, and practice
@@ -102,14 +126,15 @@
   - Write routing tests and navigation flow validation
   - _Requirements: 1.1, 3.3, 4.1, 5.1_
 
-- [ ] 14. Add comprehensive error handling and user feedback
-  - Implement global error boundary for React components
+- [x] 14. Add comprehensive error handling and user feedback
+  - Implement video dimension validation to prevent MediaPipe errors
   - Create user-friendly error messages for common failures
-  - Add retry mechanisms for network and camera errors
+  - Add retry mechanisms for camera errors
   - Implement loading states and progress indicators
   - Create notification system for success/error feedback
+  - Add error handling for storage quota exceeded
   - Write error handling tests for various failure scenarios
-  - _Requirements: 1.5, 8.4, 9.4_
+  - _Requirements: 1.5, 1.9, 4.8, 4.9, 8.4, 8.6, 9.4_
 
 - [ ] 15. Implement performance optimizations
   - Add frame rate optimization for smooth pose tracking

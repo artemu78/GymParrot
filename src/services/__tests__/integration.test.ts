@@ -124,7 +124,7 @@ describe('Service Integration', () => {
     expect(user1Activities.map(a => a.id)).toContain(movementId)
 
     // Test statistics
-    const stats = activityService.getActivityStats()
+    const stats = await activityService.getActivityStats()
     expect(stats.totalActivities).toBe(3)
     expect(stats.poseActivities).toBe(2)
     expect(stats.movementActivities).toBe(1)

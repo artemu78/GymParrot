@@ -68,7 +68,9 @@ describe("WebcamPreview", () => {
   it("should not show recording indicator when not recording", () => {
     const { container } = render(<WebcamPreview isRecording={false} />);
 
-    expect(container.textContent).not.toContain("Recording");
+    // Should not show the recording indicator (red badge with pulsing dot)
+    const recordingBadge = container.querySelector('.bg-red-600');
+    expect(recordingBadge).toBeNull();
   });
 
   it("should render pose landmarks when showLandmarks is true", () => {

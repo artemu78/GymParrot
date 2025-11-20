@@ -31,11 +31,20 @@ vi.mock("../../services", () => ({
 
 // Mock WebcamPreview component
 vi.mock("../WebcamPreview", () => ({
-  default: React.forwardRef<HTMLVideoElement, any>((props, ref) => (
-    <div data-testid="webcam-preview">
-      <video ref={ref} />
-    </div>
-  )),
+  default: React.forwardRef<HTMLVideoElement, any>((props, ref) => {
+    React.useEffect(() => {
+      if (ref && 'current' in ref && ref.current && props.onVideoReady) {
+        // Call onVideoReady after a short delay to simulate video loading
+        setTimeout(() => props.onVideoReady?.(ref.current!), 0);
+      }
+    }, [ref, props]);
+    
+    return (
+      <div data-testid="webcam-preview">
+        <video ref={ref} />
+      </div>
+    );
+  }),
 }));
 
 const mockPoseActivity: Activity = {
@@ -96,7 +105,7 @@ describe("PracticeInterface", () => {
 
     // Default successful mocks
     vi.mocked(mediaPipeService.initializePoseLandmarker).mockResolvedValue(
-      undefined
+      {} as any
     );
     vi.mocked(webcamService.startVideoStream).mockResolvedValue(undefined);
     vi.mocked(comparisonService.comparePoses).mockResolvedValue(
@@ -454,7 +463,7 @@ describe("PracticeInterface", () => {
 
     it("should handle movement sequence practice", async () => {
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options) => {
+        (video, onLandmarks, options = {}) => {
           // Simulate movement completion
           setTimeout(() => {
             options.onComplete?.();
@@ -488,7 +497,7 @@ describe("PracticeInterface", () => {
         finalResult
       );
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options) => {
+        (video, onLandmarks, options = {}) => {
           setTimeout(() => {
             options.onComplete?.();
           }, 100);
@@ -556,6 +565,73 @@ describe("PracticeInterface", () => {
       });
     });
 
+    it("should prevent practice start when video dimensions are invalid", async () => {
+      render(<PracticeInterface activityId="pose-1" />);
+
+      await waitFor(() => {
+        const startButton = screen.getByText("Start Practice");
+        fireEvent.click(startButton);
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Video stream not ready/)
+        ).toBeInTheDocument();
+      });
+
+      // Verify tracking was not started
+      expect(mediaPipeService.startMovementTracking).not.toHaveBeenCalled();
+    });
+
+    it("should prevent camera test when video dimensions are invalid", async () => {
+      render(<PracticeInterface activityId="pose-1" />);
+
+      await waitFor(() => {
+        const testButton = screen.getByText("Test Camera");
+        fireEvent.click(testButton);
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Video stream not ready/)
+        ).toBeInTheDocument();
+      });
+
+      // Verify tracking was not started
+      expect(mediaPipeService.startMovementTracking).not.toHaveBeenCalled();
+    });
+
+    it("should allow practice start when video has valid dimensions", async () => {
+      const mockStopTracking = vi.fn();
+      vi.mocked(mediaPipeService.startMovementTracking).mockResolvedValue(
+        mockStopTracking
+      );
+
+      const { container } = render(<PracticeInterface activityId="pose-1" />);
+
+      await waitFor(() => {
+        // Mock video element with valid dimensions
+        const video = container.querySelector("video");
+        if (video) {
+          Object.defineProperty(video, "videoWidth", {
+            value: 640,
+            writable: true,
+          });
+          Object.defineProperty(video, "videoHeight", {
+            value: 480,
+            writable: true,
+          });
+        }
+
+        const startButton = screen.getByText("Start Practice");
+        fireEvent.click(startButton);
+      });
+
+      await waitFor(() => {
+        expect(mediaPipeService.startMovementTracking).toHaveBeenCalled();
+      });
+    });
+
     it("should allow error dismissal", async () => {
       vi.mocked(mediaPipeService.startMovementTracking).mockRejectedValue(
         new Error("Tracking failed")
@@ -585,34 +661,66 @@ describe("PracticeInterface", () => {
     });
 
     it("should show completion summary", async () => {
+      let completeCallback: (() => void) | null = null;
+      
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options) => {
-          setTimeout(() => {
-            options.onComplete?.();
-          }, 100);
+        (video, onLandmarks, options = {}) => {
+          // Store the complete callback to call it manually
+          completeCallback = options.onComplete || null;
           return Promise.resolve(() => {});
         }
       );
 
-      render(<PracticeInterface activityId="pose-1" />);
+      const { container } = render(<PracticeInterface activityId="pose-1" />);
 
+      // Wait for activity to load
       await waitFor(() => {
-        const startButton = screen.getByText("Start Practice");
-        fireEvent.click(startButton);
+        expect(screen.getByText("Start Practice")).toBeInTheDocument();
       });
 
+      // Mock video element with valid dimensions
+      const video = container.querySelector("video");
+      if (video) {
+        Object.defineProperty(video, "videoWidth", {
+          value: 640,
+          writable: true,
+          configurable: true,
+        });
+        Object.defineProperty(video, "videoHeight", {
+          value: 480,
+          writable: true,
+          configurable: true,
+        });
+      }
+
+      // Start practice
+      const startButton = screen.getByText("Start Practice");
+      fireEvent.click(startButton);
+
+      // Wait for tracking to start
+      await waitFor(() => {
+        expect(completeCallback).not.toBeNull();
+      });
+
+      // Manually trigger completion
+      if (completeCallback) {
+        completeCallback();
+      }
+
+      // Wait for completion and verify summary
       await waitFor(() => {
         expect(screen.getByText("Practice Complete!")).toBeInTheDocument();
-        expect(screen.getByText(/Final Score:/)).toBeInTheDocument();
-        expect(screen.getByText(/Total Attempts:/)).toBeInTheDocument();
-        expect(screen.getByText(/Success Rate:/)).toBeInTheDocument();
-        expect(screen.getByText("Practice Again")).toBeInTheDocument();
       });
+
+      expect(screen.getByText(/Final Score:/)).toBeInTheDocument();
+      expect(screen.getByText(/Total Attempts:/)).toBeInTheDocument();
+      expect(screen.getByText(/Success Rate:/)).toBeInTheDocument();
+      expect(screen.getByText("Practice Again")).toBeInTheDocument();
     });
 
     it("should allow restarting practice", async () => {
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options) => {
+        (video, onLandmarks, options = {}) => {
           setTimeout(() => {
             options.onComplete?.();
           }, 100);
@@ -620,21 +728,227 @@ describe("PracticeInterface", () => {
         }
       );
 
-      render(<PracticeInterface activityId="pose-1" />);
+      const { container } = render(<PracticeInterface activityId="pose-1" />);
 
-      // Complete first practice
-      await waitFor(() => {
-        const startButton = screen.getByText("Start Practice");
-        fireEvent.click(startButton);
-      });
-
-      await waitFor(() => {
-        const practiceAgainButton = screen.getByText("Practice Again");
-        fireEvent.click(practiceAgainButton);
-      });
-
+      // Wait for activity to load
       await waitFor(() => {
         expect(screen.getByText("Start Practice")).toBeInTheDocument();
+      });
+
+      // Mock video element with valid dimensions
+      const video = container.querySelector("video");
+      if (video) {
+        Object.defineProperty(video, "videoWidth", {
+          value: 640,
+          writable: true,
+          configurable: true,
+        });
+        Object.defineProperty(video, "videoHeight", {
+          value: 480,
+          writable: true,
+          configurable: true,
+        });
+      }
+
+      // Start and complete first practice
+      const startButton = screen.getByText("Start Practice");
+      fireEvent.click(startButton);
+
+      // Wait for practice to complete
+      await waitFor(() => {
+        expect(screen.getByText("Practice Complete!")).toBeInTheDocument();
+      });
+
+      // Click practice again
+      const practiceAgainButton = screen.getByText("Practice Again");
+      fireEvent.click(practiceAgainButton);
+
+      // Should return to ready state
+      await waitFor(() => {
+        expect(screen.getByText("Start Practice")).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("Camera Test", () => {
+    beforeEach(async () => {
+      vi.mocked(activityService.getActivityById).mockResolvedValue(
+        mockPoseActivity
+      );
+    });
+
+    it("should show test camera button when ready", async () => {
+      render(<PracticeInterface activityId="pose-1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Test Camera")).toBeInTheDocument();
+      });
+    });
+
+    it("should start camera test when button is clicked", async () => {
+      const mockStopTracking = vi.fn();
+      vi.mocked(mediaPipeService.startMovementTracking).mockResolvedValue(
+        mockStopTracking
+      );
+
+      const { container } = render(<PracticeInterface activityId="pose-1" />);
+
+      await waitFor(() => {
+        // Mock video element with valid dimensions
+        const video = container.querySelector("video");
+        if (video) {
+          Object.defineProperty(video, "videoWidth", {
+            value: 640,
+            writable: true,
+          });
+          Object.defineProperty(video, "videoHeight", {
+            value: 480,
+            writable: true,
+          });
+        }
+
+        const testButton = screen.getByText("Test Camera");
+        fireEvent.click(testButton);
+      });
+
+      await waitFor(() => {
+        expect(mediaPipeService.initializePoseLandmarker).toHaveBeenCalled();
+        expect(webcamService.startVideoStream).toHaveBeenCalled();
+        expect(mediaPipeService.startMovementTracking).toHaveBeenCalled();
+      });
+    });
+
+    it("should show camera test in progress message", async () => {
+      vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
+        (video, onLandmarks, options) => {
+          return Promise.resolve(() => {});
+        }
+      );
+
+      const { container } = render(<PracticeInterface activityId="pose-1" />);
+
+      await waitFor(() => {
+        const video = container.querySelector("video");
+        if (video) {
+          Object.defineProperty(video, "videoWidth", {
+            value: 640,
+            writable: true,
+          });
+          Object.defineProperty(video, "videoHeight", {
+            value: 480,
+            writable: true,
+          });
+        }
+
+        const testButton = screen.getByText("Test Camera");
+        fireEvent.click(testButton);
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Camera test in progress/)
+        ).toBeInTheDocument();
+        expect(screen.getByText("Stop Test")).toBeInTheDocument();
+      });
+    });
+
+    it("should stop camera test when stop button is clicked", async () => {
+      const mockStopTracking = vi.fn();
+      vi.mocked(mediaPipeService.startMovementTracking).mockResolvedValue(
+        mockStopTracking
+      );
+
+      const { container } = render(<PracticeInterface activityId="pose-1" />);
+
+      await waitFor(() => {
+        const video = container.querySelector("video");
+        if (video) {
+          Object.defineProperty(video, "videoWidth", {
+            value: 640,
+            writable: true,
+          });
+          Object.defineProperty(video, "videoHeight", {
+            value: 480,
+            writable: true,
+          });
+        }
+
+        const testButton = screen.getByText("Test Camera");
+        fireEvent.click(testButton);
+      });
+
+      await waitFor(() => {
+        const stopButton = screen.getByText("Stop Test");
+        fireEvent.click(stopButton);
+      });
+
+      expect(mockStopTracking).toHaveBeenCalled();
+
+      await waitFor(() => {
+        expect(screen.getByText("Test Camera")).toBeInTheDocument();
+      });
+    });
+
+    it("should disable difficulty buttons during camera test", async () => {
+      vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
+        (video, onLandmarks, options) => {
+          return Promise.resolve(() => {});
+        }
+      );
+
+      const { container } = render(<PracticeInterface activityId="pose-1" />);
+
+      await waitFor(() => {
+        const video = container.querySelector("video");
+        if (video) {
+          Object.defineProperty(video, "videoWidth", {
+            value: 640,
+            writable: true,
+          });
+          Object.defineProperty(video, "videoHeight", {
+            value: 480,
+            writable: true,
+          });
+        }
+
+        const testButton = screen.getByText("Test Camera");
+        fireEvent.click(testButton);
+      });
+
+      await waitFor(() => {
+        const easyButton = screen.getByText("Easy");
+        expect(easyButton).toBeDisabled();
+      });
+    });
+
+    it("should handle camera test errors", async () => {
+      vi.mocked(mediaPipeService.initializePoseLandmarker).mockRejectedValue(
+        new Error("Camera initialization failed")
+      );
+
+      const { container } = render(<PracticeInterface activityId="pose-1" />);
+
+      await waitFor(() => {
+        const video = container.querySelector("video");
+        if (video) {
+          Object.defineProperty(video, "videoWidth", {
+            value: 640,
+            writable: true,
+          });
+          Object.defineProperty(video, "videoHeight", {
+            value: 480,
+            writable: true,
+          });
+        }
+
+        const testButton = screen.getByText("Test Camera");
+        fireEvent.click(testButton);
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByText("Camera initialization failed")
+        ).toBeInTheDocument();
       });
     });
   });

@@ -13,10 +13,14 @@ The Activity System is the core feature of GymParrot that enables trainers to cr
 #### Acceptance Criteria
 
 1. WHEN a trainer clicks "Create Activity" THEN the system SHALL present options for "Pose" or "Moves"
-2. WHEN a trainer selects "Pose" THEN the system SHALL display a record button and activate webcam access
-3. WHEN a trainer clicks "Record" for a pose THEN the system SHALL capture a single pose using MediaPipe PoseLandmarker
-4. WHEN pose recording is complete THEN the system SHALL save the pose landmarks to AWS DynamoDB
-5. IF webcam access is denied THEN the system SHALL display an error message and disable recording functionality
+2. WHEN a trainer selects "Pose" THEN the system SHALL display a record button with option to toggle camera on/off
+3. WHEN a trainer clicks "Start Recording" THEN the system SHALL activate camera (if not already active) and begin countdown
+4. WHEN countdown reaches zero THEN the system SHALL display "POSE!" message and capture a single pose using MediaPipe PoseLandmarker
+5. WHEN pose is captured THEN the system SHALL show captured image and landmarks for review with "Approve" and "Retake" options
+6. WHEN trainer approves pose THEN the system SHALL save the pose landmarks and captured image to local storage
+7. WHEN trainer clicks "Retake" THEN the system SHALL discard captured pose and allow recording again
+8. WHEN recording is complete or cancelled THEN the system SHALL automatically turn off camera to conserve resources
+9. IF webcam access is denied THEN the system SHALL display an error message and disable recording functionality
 
 ### Requirement 2
 
@@ -47,12 +51,15 @@ The Activity System is the core feature of GymParrot that enables trainers to cr
 
 #### Acceptance Criteria
 
-1. Trainee can select difficulty level: Soft, Medium, Hard and it reflect thereshold for system to consider his pose accuarate enough
+1. Trainee can select difficulty level: Soft (Easy), Medium, Hard and it reflect threshold for system to consider his pose accurate enough
 2. WHEN a trainee starts a pose activity THEN the system SHALL activate webcam and initialize MediaPipe PoseLandmarker
 3. WHEN the trainee is in position THEN the system SHALL continuously compare their pose against the recorded pose landmarks
 4. WHEN pose comparison is within threshold THEN the system SHALL indicate success with visual feedback
 5. WHEN pose comparison exceeds threshold THEN the system SHALL provide guidance on how to improve positioning
-6. IF webcam tracking fails THEN the system SHALL display error message and allow retry
+6. WHEN a trainee wants to test camera setup THEN the system SHALL provide a "Test Camera" button to verify pose detection before starting practice
+7. WHEN camera test is active THEN the system SHALL show real-time pose landmarks and provide option to stop test
+8. WHEN video stream is not ready THEN the system SHALL prevent practice from starting and display appropriate error message
+9. IF webcam tracking fails THEN the system SHALL display error message and allow retry
 
 ### Requirement 5
 
@@ -72,11 +79,13 @@ The Activity System is the core feature of GymParrot that enables trainers to cr
 
 #### Acceptance Criteria
 
-1. WHEN an activity is recorded THEN the system SHALL save pose landmarks data to AWS DynamoDB
-2. WHEN saving to database THEN the system SHALL include activity metadata (type, duration, creator, timestamp)
-3. WHEN database save is successful THEN the system SHALL confirm activity creation to the trainer
-4. IF database save fails THEN the system SHALL display error message and allow retry
-5. WHEN activities are retrieved THEN the system SHALL load pose landmarks and metadata from DynamoDB
+1. WHEN an activity is recorded THEN the system SHALL save pose landmarks data and captured image to browser's local storage (IndexedDB)
+2. WHEN saving to storage THEN the system SHALL include activity metadata (type, duration, creator, timestamp, image data)
+3. WHEN storage save is successful THEN the system SHALL confirm activity creation to the trainer
+4. IF storage save fails THEN the system SHALL display error message and allow retry
+5. WHEN activities are retrieved THEN the system SHALL load pose landmarks, images, and metadata from local storage
+6. WHEN storage quota is exceeded THEN the system SHALL notify user and provide option to delete old activities
+7. WHEN user clears browser data THEN activities SHALL be removed (user should be warned about this limitation)
 
 ### Requirement 9
 

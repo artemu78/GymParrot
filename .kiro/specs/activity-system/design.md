@@ -13,18 +13,21 @@ graph TB
     A[React Frontend] --> B[MediaPipe Service]
     A --> C[Activity Service]
     A --> D[Comparison Service]
-    C --> E[AWS DynamoDB]
-    B --> F[Webcam API]
+    A --> E[Webcam Service]
+    C --> F[Storage Service]
+    F --> G[IndexedDB]
+    B --> H[Webcam API]
+    E --> H
 
     subgraph "Frontend Components"
-        G[Activity Creator]
-        H[Activity Browser]
-        I[Practice Interface]
+        I[Activity Creator]
+        J[Activity Browser]
+        K[Practice Interface]
     end
 
-    A --> G
-    A --> H
     A --> I
+    A --> J
+    A --> K
 ```
 
 ### Component Architecture
@@ -33,8 +36,17 @@ The system follows a modular architecture with clear separation of concerns:
 
 - **Presentation Layer**: React components for UI interactions
 - **Service Layer**: Business logic for pose detection, activity management, and comparison
-- **Data Layer**: AWS DynamoDB for persistent storage
+- **Data Layer**: Browser IndexedDB for local persistent storage via StorageService
 - **External APIs**: MediaPipe for pose detection, Webcam API for video capture
+
+### Storage Architecture
+
+The system uses browser-based local storage (IndexedDB) instead of cloud storage:
+
+- **Benefits**: No backend infrastructure, instant access, offline capability, no API costs
+- **Limitations**: Data is device-specific, limited by browser storage quota, cleared with browser data
+- **Implementation**: StorageService wraps IndexedDB operations with async/await interface
+- **Data Structure**: Activities stored with metadata, landmarks, and base64-encoded images
 
 ## Components and Interfaces
 
@@ -62,7 +74,7 @@ interface MediaPipeService {
 
 ### 2. Activity Service
 
-**Purpose**: Manages activity creation, storage, and retrieval
+**Purpose**: Manages activity creation, storage, and retrieval using local browser storage
 
 **Key Methods**:
 
@@ -70,6 +82,7 @@ interface MediaPipeService {
 interface ActivityService {
   createPoseActivity(
     landmarks: PoseLandmark[],
+    imageData: string,
     metadata: ActivityMetadata
   ): Promise<string>;
   createMovementActivity(
@@ -77,10 +90,17 @@ interface ActivityService {
     metadata: ActivityMetadata
   ): Promise<string>;
   getActivities(): Promise<Activity[]>;
-  getActivityById(id: string): Promise<Activity>;
-  saveActivity(activity: Activity): Promise<void>;
+  getActivityById(id: string): Promise<Activity | null>;
+  deleteActivity(id: string): Promise<void>;
 }
 ```
+
+**Storage Integration**:
+
+- Uses StorageService for IndexedDB operations
+- Stores activity metadata, pose landmarks, and captured images
+- Handles storage quota errors gracefully
+- Provides activity deletion for storage management
 
 **Data Structures**:
 
@@ -91,9 +111,12 @@ interface Activity {
   name: string;
   createdBy: string;
   createdAt: Date;
-  modifiedAt: Date;
+  isPublic: boolean;
   duration?: number;
-  landmarks: PoseLandmark[] | TimestampedLandmarks[];
+  imageData?: string; // Base64-encoded image for pose activities
+  landmarks?: PoseLandmark[]; // For pose activities
+  poseData?: PoseLandmark[]; // Alternative storage for pose data
+  movementData?: TimestampedLandmarks[]; // For movement activities
 }
 
 interface TimestampedLandmarks {
@@ -159,10 +182,22 @@ interface WebcamService {
 
 #### ActivityCreator Component
 
-- Handles trainer interface for creating activities
-- Manages recording state and duration timers
-- Integrates with MediaPipe and Activity services
-- Provides visual feedback during recording
+**Recording States**:
+- `idle`: Initial state, camera off
+- `preparing`: Camera activation in progress
+- `countdown`: 3-2-1 countdown before capture
+- `capturing`: Brief moment when pose is captured
+- `reviewing`: Showing captured pose for approval
+- `processing`: Saving activity to storage
+- `completed`: Activity successfully created
+
+**Key Features**:
+- Manual camera toggle to conserve resources
+- Configurable countdown delay (3 seconds default)
+- Image capture from video frame (non-mirrored)
+- Pose review with approve/retake options
+- Automatic camera shutdown after completion
+- Visual feedback during all recording stages
 
 #### ActivityBrowser Component
 
@@ -172,10 +207,21 @@ interface WebcamService {
 
 #### PracticeInterface Component
 
-- Main interface for trainees attempting activities
+**Key Features**:
+- Difficulty level selection: Soft (Easy), Medium, Hard
+- "Test Camera" button for verifying pose detection setup
+- Video dimension validation before starting practice
 - Real-time pose comparison and feedback display
 - Progress tracking and performance metrics
-- Difficulty level selection
+- Session statistics (attempts, matches, best score)
+- Automatic error handling for invalid video streams
+
+**Camera Test Mode**:
+- 30-second test duration
+- Real-time pose landmark visualization
+- Allows users to verify camera setup before practice
+- Can be stopped at any time
+- Provides feedback on pose detection quality
 
 #### WebcamPreview Component
 
@@ -185,38 +231,44 @@ interface WebcamService {
 
 ## Data Models
 
-### DynamoDB Schema
+### IndexedDB Schema
 
-**Activities Table**:
+**Activities Object Store**:
 
 ```typescript
-interface ActivityRecord {
-  PK: string; // "ACTIVITY#${activityId}"
-  SK: string; // "METADATA"
-  GSI1PK: string; // "ACTIVITIES"
-  GSI1SK: string; // "${createdAt}#${activityId}"
-
-  id: string;
+interface StoredActivity {
+  id: string; // Primary key
   type: "pose" | "movement";
   name: string;
   createdBy: string;
-  createdAt: string;
-  duration?: number;
+  createdAt: Date;
   isPublic: boolean;
+  duration?: number;
+  imageData?: string; // Base64-encoded JPEG image
+  landmarks?: PoseLandmark[]; // For pose activities
+  poseData?: PoseLandmark[]; // Alternative storage
+  movementData?: TimestampedLandmarks[]; // For movement activities
 }
 ```
 
-**Activity Data Table**:
+**Storage Service Interface**:
 
 ```typescript
-interface ActivityDataRecord {
-  PK: string; // "ACTIVITY#${activityId}"
-  SK: string; // "DATA#${timestamp}" or "DATA#POSE"
-
-  landmarks: PoseLandmark[];
-  timestamp?: number;
+interface StorageService {
+  saveActivity(activity: Activity): Promise<void>;
+  getActivity(id: string): Promise<Activity | null>;
+  getAllActivities(): Promise<Activity[]>;
+  deleteActivity(id: string): Promise<void>;
+  clearAllActivities(): Promise<void>;
 }
 ```
+
+**Storage Considerations**:
+
+- IndexedDB provides ~50MB+ storage per origin (browser-dependent)
+- Images stored as base64 JPEG with 95% quality
+- Automatic cleanup of old activities when quota exceeded
+- Data persists until browser cache is cleared
 
 ### MediaPipe Data Structures
 
@@ -249,15 +301,18 @@ interface PoseLandmarkerResult {
 - Graceful degradation when pose detection fails
 - Performance monitoring and optimization
 
-### Database Errors
+### Storage Errors
 
-- Connection failures with exponential backoff
+- IndexedDB quota exceeded handling
 - Data validation before saving
-- Conflict resolution for concurrent operations
+- Graceful degradation when storage unavailable
+- User notification for storage limitations
 
 ### Real-time Processing Errors
 
 - Frame processing failures with recovery
+- Video dimension validation before pose detection
+- MediaPipe ROI (Region of Interest) error prevention
 - Memory management for continuous tracking
 - Performance optimization for smooth experience
 

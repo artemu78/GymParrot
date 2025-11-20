@@ -122,6 +122,12 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       setIsTracking(true);
       clearError();
 
+      // Ensure video element has valid dimensions before starting pose detection
+      const video = videoRef.current;
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        throw new Error("Video stream not ready. Please wait for camera to initialize.");
+      }
+
       // Reset session for new practice
       setSession({
         startTime: Date.now(),
@@ -287,6 +293,12 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       // Initialize camera and pose detection
       await mediaPipeService.initializePoseLandmarker();
       await webcamService.startVideoStream(videoRef.current);
+
+      // Ensure video element has valid dimensions before starting pose detection
+      const video = videoRef.current;
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        throw new Error("Video stream not ready. Please wait for camera to initialize.");
+      }
 
       // Start tracking to show landmarks
       const stopTracking = await mediaPipeService.startMovementTracking(

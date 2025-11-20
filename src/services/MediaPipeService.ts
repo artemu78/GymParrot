@@ -269,6 +269,22 @@ export class MediaPipeService implements IMediaPipeService {
       await this.initializePoseLandmarker();
     }
 
+    // Validate video element has valid dimensions
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      throw new MediaPipeError(
+        "Video element has invalid dimensions. Ensure video stream is loaded before starting tracking.",
+        "INVALID_VIDEO_DIMENSIONS"
+      );
+    }
+
+    // Ensure video is ready for processing
+    if (video.readyState < 2) {
+      throw new MediaPipeError(
+        "Video not ready for pose detection. Wait for video to load.",
+        "VIDEO_NOT_READY"
+      );
+    }
+
     const {
       duration = 30000, // 30 seconds default
       frameRate = 30,
