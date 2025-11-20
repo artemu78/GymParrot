@@ -182,7 +182,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
               onComplete?.(finalScore);
             },
             onError: (error) => {
-              handleError(error.message);
+              setError(error.message);
               setIsTracking(false);
             },
           }
@@ -231,12 +231,12 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                   error instanceof Error
                     ? error.message
                     : "Failed to compare movement";
-                handleError(message);
+                setError(message);
                 setIsTracking(false);
               }
             },
             onError: (error) => {
-              handleError(error.message);
+              setError(error.message);
               setIsTracking(false);
             },
           }
@@ -247,7 +247,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to start practice";
-      handleError(message);
+      setError(message);
       setIsTracking(false);
     }
   }, [
@@ -313,7 +313,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
             setCurrentLandmarks([]);
           },
           onError: (error) => {
-            handleError(error.message);
+            setError(error.message);
             setIsCameraTesting(false);
             setCurrentLandmarks([]);
           },
@@ -324,10 +324,10 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to test camera";
-      handleError(message);
+      setError(message);
       setIsCameraTesting(false);
     }
-  }, [clearError, handleError]);
+  }, [clearError]);
 
   const stopCameraTest = useCallback(() => {
     if (stopTrackingRef.current) {
@@ -414,7 +414,10 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     return (
       <div className={`flex items-center justify-center min-h-96 ${className}`}>
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div
+            role="status"
+            className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"
+          ></div>
           <p className="text-gray-600">Loading activity...</p>
         </div>
       </div>
