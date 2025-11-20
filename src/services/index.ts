@@ -12,6 +12,9 @@ export { ActivityService } from './ActivityService'
 export { default as activityService } from './ActivityService'
 export { ComparisonService } from './ComparisonService'
 export { default as comparisonService } from './ComparisonService'
+export { LocalStorageService, BackendStorageService } from './StorageService'
+export { default as storageService } from './StorageService'
+export type { IStorageService } from './StorageService'
 
 export interface MediaPipeService {
   initializePoseLandmarker(): Promise<PoseLandmarker>

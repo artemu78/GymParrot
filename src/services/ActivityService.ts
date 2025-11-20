@@ -3,27 +3,31 @@ import type { PoseLandmark, TimestampedLandmarks, Activity, ActivityMetadata } f
 import { ActivityError } from '../types'
 import { validateActivity, validateActivityMetadata } from '../utils/validation'
 import { ERROR_MESSAGES } from '../utils/constants'
-
-// Mock DynamoDB implementation for now - in production this would use AWS SDK
-interface ActivityRecord {
-  PK: string // "ACTIVITY#${activityId}"
-  SK: string // "METADATA" or "DATA#${timestamp}"
-  GSI1PK: string // "ACTIVITIES"
-  GSI1SK: string // "${createdAt}#${activityId}"
-  
-  id: string
-  type: 'pose' | 'movement'
-  name: string
-  createdBy: string
-  createdAt: string
-  duration?: number
-  isPublic: boolean
-  landmarks?: PoseLandmark[] | TimestampedLandmarks[]
-}
+import storageService from './StorageService'
 
 export class ActivityService implements IActivityService {
-  private activities: Map<string, Activity> = new Map()
   private nextId = 1
+
+  constructor() {
+    // Initialize nextId from existing activities in storage
+    this.initializeNextId();
+  }
+
+  private async initializeNextId(): Promise<void> {
+    try {
+      const activities = await storageService.getAllActivities();
+      if (activities.length > 0) {
+        // Extract numeric IDs and find the highest
+        const ids = activities.map(a => {
+          const match = a.id.match(/\d+$/);
+          return match ? parseInt(match[0], 10) : 0;
+        });
+        this.nextId = Math.max(...ids) + 1;
+      }
+    } catch (error) {
+      console.warn('Failed to initialize nextId from storage:', error);
+    }
+  }
 
   async createPoseActivity(landmarks: PoseLandmark[], metadata: ActivityMetadata): Promise<string> {
     try {
@@ -130,10 +134,10 @@ export class ActivityService implements IActivityService {
 
   async getActivities(): Promise<Activity[]> {
     try {
-      // In production, this would query DynamoDB with GSI
-      const activities = Array.from(this.activities.values())
+      // Get all activities from storage
+      const activities = await storageService.getAllActivities();
       
-      // Filter to only public activities (in production, this would be done in the query)
+      // Filter to only public activities
       return activities
         .filter(activity => activity.isPublic)
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()) // Most recent first
@@ -150,22 +154,24 @@ export class ActivityService implements IActivityService {
         throw new ActivityError('Invalid activity ID', 'INVALID_ID')
       }
 
-      const activity = this.activities.get(id)
+      const activity = await storageService.getActivity(id);
       
       if (!activity) {
         throw new ActivityError('Activity not found', 'NOT_FOUND')
       }
 
       // Return deep copy to prevent external modification
+      const landmarks = Array.isArray(activity.landmarks) 
+        ? activity.landmarks.map(item => 
+            'timestamp' in item 
+              ? { timestamp: item.timestamp, landmarks: [...item.landmarks] } as TimestampedLandmarks
+              : { ...item } as PoseLandmark
+          )
+        : [];
+
       return {
         ...activity,
-        landmarks: Array.isArray(activity.landmarks) 
-          ? activity.landmarks.map(item => 
-              'timestamp' in item 
-                ? { timestamp: item.timestamp, landmarks: [...item.landmarks] }
-                : { ...item }
-            )
-          : []
+        landmarks: landmarks as typeof activity.landmarks
       }
 
     } catch (error) {
@@ -184,20 +190,21 @@ export class ActivityService implements IActivityService {
         throw new ActivityError('Activity validation failed', 'VALIDATION_FAILED')
       }
 
-      // In production, this would save to DynamoDB
-      // For now, store in memory with deep copy
+      // Save to storage service (LocalStorage or Backend API)
+      const landmarks = Array.isArray(activity.landmarks) 
+        ? activity.landmarks.map(item => 
+            'timestamp' in item 
+              ? { timestamp: item.timestamp, landmarks: [...item.landmarks] } as TimestampedLandmarks
+              : { ...item } as PoseLandmark
+          )
+        : [];
+
       const activityCopy: Activity = {
         ...activity,
-        landmarks: Array.isArray(activity.landmarks) 
-          ? activity.landmarks.map(item => 
-              'timestamp' in item 
-                ? { timestamp: item.timestamp, landmarks: [...item.landmarks] }
-                : { ...item }
-            )
-          : []
+        landmarks: landmarks as typeof activity.landmarks
       }
 
-      this.activities.set(activity.id, activityCopy)
+      await storageService.saveActivity(activityCopy);
 
     } catch (error) {
       if (error instanceof ActivityError) {
@@ -212,7 +219,7 @@ export class ActivityService implements IActivityService {
 
   async getActivitiesByCreator(createdBy: string): Promise<Activity[]> {
     try {
-      const activities = Array.from(this.activities.values())
+      const activities = await storageService.getAllActivities();
       
       return activities
         .filter(activity => activity.createdBy === createdBy)
@@ -226,7 +233,7 @@ export class ActivityService implements IActivityService {
 
   async getActivitiesByType(type: 'pose' | 'movement'): Promise<Activity[]> {
     try {
-      const activities = Array.from(this.activities.values())
+      const activities = await storageService.getAllActivities();
       
       return activities
         .filter(activity => activity.type === type && activity.isPublic)
@@ -244,11 +251,12 @@ export class ActivityService implements IActivityService {
         throw new ActivityError('Invalid activity ID', 'INVALID_ID')
       }
 
-      if (!this.activities.has(id)) {
+      const activity = await storageService.getActivity(id);
+      if (!activity) {
         throw new ActivityError('Activity not found', 'NOT_FOUND')
       }
 
-      this.activities.delete(id)
+      await storageService.deleteActivity(id);
 
     } catch (error) {
       if (error instanceof ActivityError) {
@@ -260,14 +268,14 @@ export class ActivityService implements IActivityService {
   }
 
   // Get activity statistics
-  getActivityStats(): {
+  async getActivityStats(): Promise<{
     totalActivities: number
     poseActivities: number
     movementActivities: number
     publicActivities: number
     privateActivities: number
-  } {
-    const activities = Array.from(this.activities.values())
+  }> {
+    const activities = await storageService.getAllActivities();
     
     return {
       totalActivities: activities.length,
@@ -279,9 +287,9 @@ export class ActivityService implements IActivityService {
   }
 
   // Clear all activities (for testing)
-  clearAll(): void {
-    this.activities.clear()
-    this.nextId = 1
+  async clearAll(): Promise<void> {
+    await storageService.clearAll();
+    this.nextId = 1;
   }
 }
 
