@@ -122,8 +122,19 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       setIsTracking(true);
       clearError();
 
+      // Initialize camera and pose detection if not already running
+      await mediaPipeService.initializePoseLandmarker();
+      await webcamService.startVideoStream(videoRef.current);
+
+      // Wait a bit for video dimensions to be available
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       // Ensure video element has valid dimensions before starting pose detection
       const video = videoRef.current;
+      if (!video) {
+        throw new Error("Video element no longer available");
+      }
+      
       if (video.videoWidth === 0 || video.videoHeight === 0) {
         throw new Error("Video stream not ready. Please wait for camera to initialize.");
       }
@@ -269,6 +280,9 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     setIsTracking(false);
     setPracticeState("ready");
     setComparisonResult(null);
+    
+    // Turn off camera to conserve resources
+    webcamService.stopVideoStream();
   }, []);
 
   const resetPractice = useCallback(() => {
@@ -294,28 +308,39 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       await mediaPipeService.initializePoseLandmarker();
       await webcamService.startVideoStream(videoRef.current);
 
+      // Wait a bit for video dimensions to be available
+      // Sometimes loadeddata fires before dimensions are set
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       // Ensure video element has valid dimensions before starting pose detection
       const video = videoRef.current;
+      if (!video) {
+        throw new Error("Video element no longer available");
+      }
+      
       if (video.videoWidth === 0 || video.videoHeight === 0) {
         throw new Error("Video stream not ready. Please wait for camera to initialize.");
       }
 
-      // Start tracking to show landmarks
+      // Start tracking to show landmarks (infinite duration until user stops)
       const stopTracking = await mediaPipeService.startMovementTracking(
-        videoRef.current,
+        video,
         (landmarks) => {
           setCurrentLandmarks(landmarks);
         },
         {
-          duration: 30000, // 30 seconds test
+          duration: Infinity, // Run indefinitely until user clicks "Stop Test"
           onComplete: () => {
+            // This won't be called with Infinity duration
             setIsCameraTesting(false);
             setCurrentLandmarks([]);
+            webcamService.stopVideoStream();
           },
           onError: (error) => {
             setError(error.message);
             setIsCameraTesting(false);
             setCurrentLandmarks([]);
+            webcamService.stopVideoStream();
           },
         }
       );
@@ -336,6 +361,9 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     }
     setIsCameraTesting(false);
     setCurrentLandmarks([]);
+    
+    // Turn off camera to conserve resources
+    webcamService.stopVideoStream();
   }, []);
 
   const getDifficultyColor = (level: DifficultyLevel) => {
@@ -557,9 +585,9 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Camera Preview */}
-            <div>
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            {/* Camera Preview - Takes 3 columns */}
+            <div className="lg:col-span-4 xl:col-span-3">
               <h3 className="text-lg font-medium text-gray-900 mb-4">
                 Your Performance
               </h3>
@@ -571,14 +599,14 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                 isRecording={isTracking}
                 onVideoReady={handleVideoReady}
                 onError={handleError}
-                width={480}
-                height={360}
-                className="w-full max-w-lg"
+                width={640}
+                height={480}
+                className="w-full max-w-2xl mx-auto xl:mx-0"
               />
             </div>
 
-            {/* Feedback and Controls */}
-            <div>
+            {/* Feedback and Controls - Takes 2 columns */}
+            <div className="lg:col-span-1 xl:col-span-2">
               <h3 className="text-lg font-medium text-gray-900 mb-4">
                 Feedback
               </h3>
@@ -695,7 +723,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                 <h4 className="text-sm font-medium text-gray-900 mb-3">
                   Session Statistics
                 </h4>
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="text-gray-600">Attempts:</span>
                     <span className="ml-2 font-medium">{session.attempts}</span>

@@ -94,10 +94,9 @@ const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
 
   return (
     <svg
-      className="absolute inset-0 pointer-events-none"
-      width={videoWidth}
-      height={videoHeight}
-      viewBox={`0 0 ${videoWidth} ${videoHeight}`}
+      className="absolute inset-0 pointer-events-none w-full h-full"
+      viewBox="0 0 1 1"
+      preserveAspectRatio="xMidYMid slice"
     >
       {/* Draw connections */}
       {connections.map(([startIdx, endIdx], index) => {
@@ -116,12 +115,12 @@ const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
         return (
           <line
             key={index}
-            x1={startLandmark.x * videoWidth}
-            y1={startLandmark.y * videoHeight}
-            x2={endLandmark.x * videoWidth}
-            y2={endLandmark.y * videoHeight}
+            x1={startLandmark.x}
+            y1={startLandmark.y}
+            x2={endLandmark.x}
+            y2={endLandmark.y}
             stroke="#00ff00"
-            strokeWidth="2"
+            strokeWidth="0.003"
             opacity="0.8"
           />
         );
@@ -134,9 +133,9 @@ const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
         return (
           <circle
             key={index}
-            cx={landmark.x * videoWidth}
-            cy={landmark.y * videoHeight}
-            r="3"
+            cx={landmark.x}
+            cy={landmark.y}
+            r="0.005"
             fill="#ff0000"
             opacity="0.9"
           />
@@ -243,6 +242,27 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
         setVideoReady(false);
       }
     }, [isActive]);
+
+    // Monitor video srcObject to detect when stream is stopped
+    useEffect(() => {
+      const video = videoRef.current;
+      if (!video) return;
+
+      const checkStream = () => {
+        // If srcObject is null or stream has no active tracks, reset videoReady
+        const stream = video.srcObject as MediaStream | null;
+        if (!stream || stream.getTracks().every(track => track.readyState === 'ended')) {
+          setVideoReady(false);
+        }
+      };
+
+      // Check periodically
+      const interval = setInterval(checkStream, 500);
+
+      return () => {
+        clearInterval(interval);
+      };
+    }, []);
 
     return (
       <div

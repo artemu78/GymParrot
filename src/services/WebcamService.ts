@@ -50,22 +50,38 @@ export class WebcamService implements IWebcamService {
       videoElement.playsInline = true
       videoElement.muted = true
 
-      // Wait for video to be ready
+      // Wait for video to be ready with metadata (dimensions)
       await new Promise<void>((resolve, reject) => {
+        const handleLoadedMetadata = () => {
+          cleanup()
+          // Also wait for loadeddata to ensure video is ready to play
+          videoElement.addEventListener('loadeddata', handleLoadedData, { once: true })
+        }
+
         const handleLoadedData = () => {
-          videoElement.removeEventListener('loadeddata', handleLoadedData)
-          videoElement.removeEventListener('error', handleError)
+          cleanup()
           resolve()
         }
 
         const handleError = (event: Event) => {
-          videoElement.removeEventListener('loadeddata', handleLoadedData)
-          videoElement.removeEventListener('error', handleError)
+          cleanup()
           reject(new Error('Video element failed to load'))
         }
 
-        videoElement.addEventListener('loadeddata', handleLoadedData)
-        videoElement.addEventListener('error', handleError)
+        const cleanup = () => {
+          videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata)
+          videoElement.removeEventListener('loadeddata', handleLoadedData)
+          videoElement.removeEventListener('error', handleError)
+        }
+
+        // If metadata is already loaded, skip to loadeddata
+        if (videoElement.readyState >= 1) {
+          videoElement.addEventListener('loadeddata', handleLoadedData, { once: true })
+        } else {
+          videoElement.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true })
+        }
+        
+        videoElement.addEventListener('error', handleError, { once: true })
 
         // Start playing the video
         videoElement.play().catch(reject)
