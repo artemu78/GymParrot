@@ -8,7 +8,7 @@
     "build": "vite build && tsc",
     "serve": "vite preview",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "vitest run --coverage --coverage.all",
     "format": "biome format",
     "lint": "biome lint",
     "check": "biome check"
