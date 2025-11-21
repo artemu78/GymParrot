@@ -285,7 +285,8 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
 
       const activityId = await activityService.createPoseActivity(
         capturedLandmarks,
-        metadata
+        metadata,
+        capturedImage || undefined
       );
 
       setRecordingState("completed");
@@ -310,6 +311,7 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
     stopCamera,
     onActivityCreated,
     handleError,
+    capturedImage,
   ]);
 
   const retakePose = useCallback(() => {

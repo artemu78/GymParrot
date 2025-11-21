@@ -43,14 +43,10 @@ const RecordingIndicator: React.FC<RecordingIndicatorProps> = ({
 
 interface PoseLandmarkOverlayProps {
   landmarks: PoseLandmark[];
-  videoWidth: number;
-  videoHeight: number;
 }
 
 const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
   landmarks,
-  videoWidth,
-  videoHeight,
 }) => {
   if (!landmarks || landmarks.length === 0) return null;
 
@@ -164,7 +160,6 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
     const videoRef = useRef<HTMLVideoElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [videoReady, setVideoReady] = useState(false);
-    const [actualDimensions, setActualDimensions] = useState({ width, height });
 
     // Combine internal ref with forwarded ref
     const combinedRef = useCallback(
@@ -184,15 +179,8 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
       if (!video) return;
 
       setVideoReady(true);
-
-      // Update actual dimensions based on video
-      setActualDimensions({
-        width: video.videoWidth || width,
-        height: video.videoHeight || height,
-      });
-
       onVideoReady?.(video);
-    }, [onVideoReady, width, height]);
+    }, [onVideoReady]);
 
     const handleVideoError = useCallback(
       (error: string) => {
@@ -217,24 +205,14 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
         handleVideoError("Video failed to load");
       };
 
-      const handleLoadedMetadata = () => {
-        // Update dimensions when metadata is loaded
-        setActualDimensions({
-          width: video.videoWidth || width,
-          height: video.videoHeight || height,
-        });
-      };
-
       video.addEventListener("loadeddata", handleLoadedData);
       video.addEventListener("error", handleError);
-      video.addEventListener("loadedmetadata", handleLoadedMetadata);
 
       return () => {
         video.removeEventListener("loadeddata", handleLoadedData);
         video.removeEventListener("error", handleError);
-        video.removeEventListener("loadedmetadata", handleLoadedMetadata);
       };
-    }, [handleVideoReady, handleVideoError, width, height, videoReady]);
+    }, [handleVideoReady, handleVideoError, videoReady]);
 
     // Reset videoReady when component becomes inactive
     useEffect(() => {
@@ -289,8 +267,6 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
           <div className="absolute inset-0" style={{ transform: "scaleX(-1)" }}>
             <PoseLandmarkOverlay
               landmarks={landmarks}
-              videoWidth={actualDimensions.width}
-              videoHeight={actualDimensions.height}
             />
           </div>
         )}

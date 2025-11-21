@@ -31,6 +31,7 @@ export interface Activity {
   createdAt: Date;
   duration?: number;
   isPublic: boolean;
+  imageData?: string; // Base64-encoded image for pose activities
   landmarks: PoseLandmark[] | TimestampedLandmarks[];
   // Type-specific data
   poseData?: PoseLandmark[];
