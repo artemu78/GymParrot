@@ -327,9 +327,8 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to start practice";
-      setError(message);
+      handleError(message);
       setIsTracking(false);
-      setPracticeState("ready");
     }
   }, [activity, practiceState, clearError, handleError, stopPractice]);
 
@@ -368,10 +367,10 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to test camera";
-      setError(message);
+      handleError(message);
       setIsCameraTesting(false);
     }
-  }, [clearError]);
+  }, [clearError, handleError]);
 
   const stopCameraTest = useCallback(() => {
     if (stopTrackingRef.current) {
@@ -612,7 +611,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
              {(practiceState === "countdown" || practiceState === "practicing") && (
                 <button
-                  onClick={stopPractice} // Stops and resets
+                  onClick={resetPractice} // Stops and resets
                   className="px-6 py-3 bg-red-600 text-white rounded-md font-medium hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
                 >
                   Cancel

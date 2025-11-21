@@ -75,6 +75,7 @@ const mockComparisonResult: ComparisonResult = {
 describe("PracticeInterface", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
 
     // Set default video dimensions
     Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", {
@@ -90,6 +91,9 @@ describe("PracticeInterface", () => {
     vi.mocked(mediaPipeService.initializePoseLandmarker).mockResolvedValue(
       {} as any
     );
+    vi.mocked(mediaPipeService.startMovementTracking).mockResolvedValue(
+       () => {}
+    );
     vi.mocked(webcamService.startVideoStream).mockResolvedValue(undefined);
     vi.mocked(comparisonService.comparePoses).mockResolvedValue(
       mockComparisonResult
@@ -97,6 +101,14 @@ describe("PracticeInterface", () => {
     vi.mocked(comparisonService.compareMovementSequence).mockResolvedValue(
       mockComparisonResult
     );
+
+    // Mock Canvas API
+    HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
+        translate: vi.fn(),
+        scale: vi.fn(),
+        drawImage: vi.fn(),
+    });
+    HTMLCanvasElement.prototype.toDataURL = vi.fn().mockReturnValue("data:image/jpeg;base64,test");
   });
 
   afterEach(() => {
@@ -140,75 +152,303 @@ describe("PracticeInterface", () => {
     });
   });
 
-  describe("Practice Controls", () => {
+  describe("Difficulty Selector", () => {
     beforeEach(async () => {
       vi.mocked(activityService.getActivityById).mockResolvedValue(
         mockPoseActivity
       );
     });
 
-    it("should show start practice button when ready", async () => {
-      render(<PracticeInterface activityId="pose-1" />);
+    it("should handle difficulty changes", async () => {
+      const onDifficultyChange = vi.fn();
+      render(
+        <PracticeInterface
+          activityId="pose-1"
+          initialDifficulty="medium"
+          onDifficultyChange={onDifficultyChange}
+        />
+      );
+
       await waitFor(() => {
         expect(screen.getByText("Start Practice")).toBeInTheDocument();
       });
+
+      const hardButton = screen.getByText("Hard");
+      fireEvent.click(hardButton);
+
+      expect(onDifficultyChange).toHaveBeenCalledWith("hard");
+
+      expect(hardButton).toHaveClass("bg-white");
+      expect(screen.getByText("Medium")).not.toHaveClass("bg-white");
     });
   });
 
-  describe("Pose Comparison Result", () => {
-      beforeEach(async () => {
-          vi.mocked(activityService.getActivityById).mockResolvedValue(mockPoseActivity);
-          // We need to mock Canvas API for captureImage
-          HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
-              translate: vi.fn(),
-              scale: vi.fn(),
-              drawImage: vi.fn(),
-          });
-          HTMLCanvasElement.prototype.toDataURL = vi.fn().mockReturnValue("data:image/jpeg;base64,test");
-      });
-      
-      it("should initiate countdown when practice starts", async () => {
-          // Use real timers
-          vi.useRealTimers();
-
-          const { container } = render(<PracticeInterface activityId="pose-1" />);
-
-          await waitFor(() => {
-              expect(screen.getByText("Start Practice")).toBeInTheDocument();
-          });
-
-          // Mock video element properties explicitly
-          const video = container.querySelector("video");
-          if (video) {
-             Object.defineProperty(video, "videoWidth", { value: 640, writable: true });
-             Object.defineProperty(video, "videoHeight", { value: 480, writable: true });
-          }
-
-          fireEvent.click(screen.getByText("Start Practice"));
-
-          // Wait for countdown to appear (it has 200ms delay)
-          await waitFor(() => {
-             expect(screen.getByText("3")).toBeInTheDocument();
-          }, { timeout: 2000 });
-
-          // Verify cancel button appears
-          expect(screen.getByText("Cancel")).toBeInTheDocument();
-      });
-  });
-
-  describe("Camera Test", () => {
+  describe("Camera Test Interactions", () => {
     beforeEach(async () => {
       vi.mocked(activityService.getActivityById).mockResolvedValue(
         mockPoseActivity
       );
     });
 
-    it("should show test camera button when ready", async () => {
-      render(<PracticeInterface activityId="pose-1" />);
+    it("should start and stop camera test", async () => {
+      const { container } = render(<PracticeInterface activityId="pose-1" />);
 
       await waitFor(() => {
         expect(screen.getByText("Test Camera")).toBeInTheDocument();
       });
+
+      const videoElement = container.querySelector('video');
+      if (videoElement) {
+          Object.defineProperty(videoElement, "videoWidth", { value: 640, writable: true });
+      }
+
+      fireEvent.click(screen.getByText("Test Camera"));
+
+      await waitFor(() => {
+        expect(mediaPipeService.startMovementTracking).toHaveBeenCalled();
+        expect(screen.getByText("Stop Camera Test")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Stop Camera Test"));
+
+      expect(webcamService.stopVideoStream).toHaveBeenCalled();
+      expect(screen.queryByText("Stop Camera Test")).not.toBeInTheDocument();
+      expect(screen.getByText("Test Camera")).toBeInTheDocument();
+    });
+
+    it("should handle camera test errors", async () => {
+       vi.useFakeTimers();
+       vi.mocked(mediaPipeService.startMovementTracking).mockRejectedValueOnce(new Error("Tracking failed"));
+
+       const { container } = render(<PracticeInterface activityId="pose-1" />);
+
+       await act(async () => { await vi.runAllTimersAsync(); });
+       expect(screen.getByText("Test Camera")).toBeInTheDocument();
+
+       const videoElement = container.querySelector('video');
+       if (videoElement) {
+          Object.defineProperty(videoElement, "videoWidth", { value: 640, writable: true });
+       }
+
+       await act(async () => {
+           fireEvent.click(screen.getByText("Test Camera"));
+           await vi.advanceTimersByTimeAsync(500);
+           await Promise.resolve();
+       });
+
+       expect(screen.getByText("Tracking failed")).toBeInTheDocument();
+       expect(screen.queryByText("Stop Camera Test")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Practice Flow (Pose)", () => {
+      beforeEach(async () => {
+          vi.mocked(activityService.getActivityById).mockResolvedValue(mockPoseActivity);
+      });
+
+      it("should capture and compare after countdown", async () => {
+          vi.useFakeTimers();
+          const onComplete = vi.fn();
+          const { container } = render(<PracticeInterface activityId="pose-1" onComplete={onComplete} />);
+
+          await act(async () => { await vi.runAllTimersAsync(); });
+          expect(screen.getByText("Start Practice")).toBeInTheDocument();
+
+          const videoElement = container.querySelector('video');
+          if (videoElement) {
+            Object.defineProperty(videoElement, "videoWidth", { value: 640, writable: true });
+            Object.defineProperty(videoElement, "videoHeight", { value: 480, writable: true });
+          }
+
+          // Trigger Start Practice
+          await act(async () => {
+             fireEvent.click(screen.getByText("Start Practice"));
+             await vi.advanceTimersByTimeAsync(300);
+             await Promise.resolve();
+          });
+
+          expect(screen.getByText("3")).toBeInTheDocument();
+
+          // Countdown 3..2..1..0
+          // Advance step by step to ensure recursive effects run
+          for (let i = 0; i < 5; i++) {
+              await act(async () => {
+                  await vi.advanceTimersByTimeAsync(1000);
+                  await Promise.resolve();
+              });
+          }
+
+          // Verify comparison call and overlay
+          expect(comparisonService.comparePoses).toHaveBeenCalled();
+          expect(screen.getByText("Excellent!")).toBeInTheDocument();
+
+          fireEvent.click(screen.getByText("Finish"));
+          expect(onComplete).toHaveBeenCalledWith(0.85);
+      });
+
+      it("should allow cancel during countdown", async () => {
+          vi.useFakeTimers();
+          const { container } = render(<PracticeInterface activityId="pose-1" />);
+          await act(async () => { await vi.runAllTimersAsync(); });
+          expect(screen.getByText("Start Practice")).toBeInTheDocument();
+
+          const videoElement = container.querySelector('video');
+          if (videoElement) {
+            Object.defineProperty(videoElement, "videoWidth", { value: 640, writable: true });
+          }
+
+          await act(async () => {
+             fireEvent.click(screen.getByText("Start Practice"));
+             await vi.advanceTimersByTimeAsync(300);
+             await Promise.resolve();
+          });
+
+          expect(screen.getByText("Cancel")).toBeInTheDocument();
+
+          await act(async () => {
+            fireEvent.click(screen.getByText("Cancel"));
+            await Promise.resolve(); // Flush state updates
+          });
+
+          expect(webcamService.stopVideoStream).toHaveBeenCalled();
+          expect(screen.queryByText("Cancel")).not.toBeInTheDocument();
+          expect(screen.getByText("Start Practice")).toBeInTheDocument();
+      });
+
+      it("should allow retry after completion", async () => {
+         vi.useFakeTimers();
+         const { container } = render(<PracticeInterface activityId="pose-1" />);
+         await act(async () => { await vi.runAllTimersAsync(); });
+         expect(screen.getByText("Start Practice")).toBeInTheDocument();
+
+         const videoElement = container.querySelector('video');
+         if (videoElement) {
+            Object.defineProperty(videoElement, "videoWidth", { value: 640, writable: true });
+            Object.defineProperty(videoElement, "videoHeight", { value: 480, writable: true });
+          }
+
+         await act(async () => {
+             fireEvent.click(screen.getByText("Start Practice"));
+             await vi.advanceTimersByTimeAsync(300);
+             await Promise.resolve();
+         });
+
+         // Countdown
+         for (let i = 0; i < 5; i++) {
+              await act(async () => {
+                  await vi.advanceTimersByTimeAsync(1000);
+                  await Promise.resolve();
+              });
+         }
+
+         expect(screen.getByText("Excellent!")).toBeInTheDocument();
+
+         fireEvent.click(screen.getByText("Try Again"));
+
+         expect(screen.queryByText("Excellent!")).not.toBeInTheDocument();
+         expect(screen.getByText("Start Practice")).toBeInTheDocument();
+      });
+
+      it("should handle errors during practice start", async () => {
+        vi.useFakeTimers();
+        vi.mocked(webcamService.startVideoStream).mockRejectedValue(new Error("Camera failed"));
+
+        const { container } = render(<PracticeInterface activityId="pose-1" />);
+        await act(async () => { await vi.runAllTimersAsync(); });
+        expect(screen.getByText("Start Practice")).toBeInTheDocument();
+
+        const videoElement = container.querySelector('video');
+         if (videoElement) {
+            Object.defineProperty(videoElement, "videoWidth", { value: 640, writable: true });
+         }
+
+        await act(async () => {
+            fireEvent.click(screen.getByText("Start Practice"));
+            // Flush promises
+            await vi.runAllTimersAsync();
+            await Promise.resolve();
+        });
+
+        expect(screen.getByText("Camera failed")).toBeInTheDocument();
+      });
+  });
+
+  describe("Movement Activity", () => {
+      const mockMovementActivity: Activity = {
+          ...mockPoseActivity,
+          id: "move-1",
+          type: "movement",
+          movementData: [],
+          duration: 5000
+      };
+
+      beforeEach(() => {
+          vi.mocked(activityService.getActivityById).mockResolvedValue(mockMovementActivity);
+      });
+
+      it("should handle movement practice flow", async () => {
+          vi.useFakeTimers();
+          let completeCallback: () => void = () => {};
+
+          vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
+              async (video, onFrame, options) => {
+                  if (options?.onComplete) {
+                      completeCallback = options.onComplete as any;
+                  }
+                  return () => {};
+              }
+          );
+
+          const { container } = render(<PracticeInterface activityId="move-1" />);
+
+          await act(async () => { await vi.runAllTimersAsync(); });
+          expect(screen.getByText("Start Practice")).toBeInTheDocument();
+          expect(screen.getByText("Follow the movement")).toBeInTheDocument();
+
+           const videoElement = container.querySelector('video');
+           if (videoElement) {
+             Object.defineProperty(videoElement, "videoWidth", { value: 640, writable: true });
+           }
+
+          await act(async () => {
+              fireEvent.click(screen.getByText("Start Practice"));
+              // Advance for video ready check
+              await vi.advanceTimersByTimeAsync(300);
+              await Promise.resolve();
+          });
+
+          expect(mediaPipeService.startMovementTracking).toHaveBeenCalled();
+
+          // Simulate completion
+          await act(async () => {
+              completeCallback();
+          });
+
+          expect(webcamService.stopVideoStream).toHaveBeenCalled();
+      });
+  });
+
+  describe("Cleanup", () => {
+    beforeEach(async () => {
+          vi.mocked(activityService.getActivityById).mockResolvedValue(mockPoseActivity);
+    });
+
+    it("should clean up on unmount", async () => {
+        const { unmount, container } = render(<PracticeInterface activityId="pose-1" />);
+        await waitFor(() => expect(screen.getByText("Start Practice")).toBeInTheDocument());
+
+        const videoElement = container.querySelector('video');
+         if (videoElement) {
+            Object.defineProperty(videoElement, "videoWidth", { value: 640, writable: true });
+         }
+
+        // Start something
+        fireEvent.click(screen.getByText("Test Camera"));
+        await waitFor(() => expect(screen.getByText("Stop Camera Test")).toBeInTheDocument());
+
+        unmount();
+
+        expect(webcamService.stopVideoStream).toHaveBeenCalled();
     });
   });
 });
