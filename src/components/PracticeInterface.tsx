@@ -149,6 +149,13 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     setCurrentLandmarks([]);
   }, [stopPractice]);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopPractice();
+    };
+  }, [stopPractice]);
+
   const handleVideoReady = useCallback(
     async (video: HTMLVideoElement) => {
       // We only auto-start stream if we are testing camera or counting down/practicing
