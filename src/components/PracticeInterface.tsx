@@ -16,6 +16,7 @@ import type {
 interface PracticeInterfaceProps {
   activityId: string;
   initialDifficulty?: DifficultyLevel;
+  mode?: "practice" | "demo";
   onComplete?: (score: number) => void;
   onError?: (error: string) => void;
   onDifficultyChange?: (difficulty: DifficultyLevel) => void;
