@@ -9,7 +9,6 @@ import {
 import { routeTree } from "../routeTree.gen";
 
 // Mock the services and components for integration testing
-vi.mock("../services/ActivityService");
 vi.mock("../services/MediaPipeService");
 vi.mock("../services/WebcamService");
 vi.mock("../services/ComparisonService");
@@ -98,8 +97,9 @@ vi.mock("../components/PracticeInterface", () => ({
   ),
 }));
 
-const mockActivityService = {
-  getActivityById: vi.fn().mockImplementation((id: string) => {
+// Move mock implementation inside the factory
+vi.mock("../services/ActivityService", () => {
+  const getActivityById = vi.fn().mockImplementation((id: string) => {
     const activities: Record<string, any> = {
       "pose-activity-1": {
         id: "pose-activity-1",
@@ -122,12 +122,16 @@ const mockActivityService = {
       },
     };
     return Promise.resolve(activities[id] || null);
-  }),
-};
+  });
 
-vi.mock("../services/ActivityService", () => ({
-  ActivityService: vi.fn(() => mockActivityService),
-}));
+  return {
+    ActivityService: vi.fn(function () {
+      return {
+        getActivityById,
+      };
+    }),
+  };
+});
 
 describe("Complete Navigation Flow", () => {
   let router: any;
