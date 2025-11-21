@@ -31,6 +31,7 @@ export const ActivityCard: React.FC<ActivityCardProps> = ({
           <div className="w-16 h-16 mx-auto mb-2 bg-blue-100 rounded-full flex items-center justify-center">
             {activity.type === "pose" ? (
               <svg
+                aria-hidden="true"
                 className="w-8 h-8 text-blue-600"
                 fill="none"
                 stroke="currentColor"
@@ -45,6 +46,7 @@ export const ActivityCard: React.FC<ActivityCardProps> = ({
               </svg>
             ) : (
               <svg
+                aria-hidden="true"
                 className="w-8 h-8 text-blue-600"
                 fill="none"
                 stroke="currentColor"

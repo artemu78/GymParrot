@@ -1,6 +1,6 @@
 import React from "react";
 
-interface EmptyStateProps {
+export interface EmptyStateProps {
   hasFilters: boolean;
 }
 
@@ -8,6 +8,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ hasFilters }) => (
   <div className="col-span-full flex flex-col items-center justify-center py-12">
     <div className="w-24 h-24 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
       <svg
+        aria-hidden="true"
         className="w-12 h-12 text-gray-400"
         fill="none"
         stroke="currentColor"
