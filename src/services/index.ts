@@ -54,7 +54,7 @@ export interface MediaPipeService {
 }
 
 export interface ActivityService {
-  createPoseActivity(landmarks: PoseLandmark[], metadata: ActivityMetadata): Promise<string>
+  createPoseActivity(landmarks: PoseLandmark[], metadata: ActivityMetadata, imageData?: string): Promise<string>
   createMovementActivity(landmarkSequence: TimestampedLandmarks[], metadata: ActivityMetadata): Promise<string>
   getActivities(): Promise<Activity[]>
   getActivityById(id: string): Promise<Activity>

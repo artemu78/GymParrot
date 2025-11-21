@@ -85,7 +85,6 @@ function Practice() {
       <PracticeInterface
         activityId={activityId}
         initialDifficulty={difficulty}
-        mode={mode}
         onComplete={handleComplete}
         onError={handleError}
         onDifficultyChange={handleDifficultyChange}

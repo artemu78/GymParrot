@@ -1,5 +1,5 @@
 import React from "react";
-import { render, fireEvent, waitFor, screen, act } from "@testing-library/react";
+import { render, fireEvent, waitFor, screen } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 import PracticeInterface from "../PracticeInterface";
 import {
@@ -65,33 +65,6 @@ const mockPoseActivity: Activity = {
   ],
 };
 
-const mockMovementActivity: Activity = {
-  id: "movement-1",
-  name: "Test Movement",
-  type: "movement",
-  createdBy: "trainer1",
-  createdAt: new Date(),
-  isPublic: true,
-  duration: 10000,
-  landmarks: [
-    {
-      timestamp: 0,
-      landmarks: [
-        { x: 0.5, y: 0.5, z: 0, visibility: 1 },
-        { x: 0.6, y: 0.6, z: 0, visibility: 1 },
-      ],
-    },
-  ],
-  movementData: [
-    {
-      timestamp: 0,
-      landmarks: [
-        { x: 0.5, y: 0.5, z: 0, visibility: 1 },
-        { x: 0.6, y: 0.6, z: 0, visibility: 1 },
-      ],
-    },
-  ],
-};
 
 const mockComparisonResult: ComparisonResult = {
   score: 0.85,
