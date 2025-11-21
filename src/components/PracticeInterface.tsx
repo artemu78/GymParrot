@@ -317,8 +317,8 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
               setPracticeState("completed");
             },
             onError: (error) => {
+              stopPractice();
               handleError(error.message);
-              setIsTracking(false);
             },
           }
         );
