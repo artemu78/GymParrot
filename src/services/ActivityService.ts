@@ -29,7 +29,7 @@ export class ActivityService implements IActivityService {
     }
   }
 
-  async createPoseActivity(landmarks: PoseLandmark[], metadata: ActivityMetadata): Promise<string> {
+  async createPoseActivity(landmarks: PoseLandmark[], metadata: ActivityMetadata, imageData?: string): Promise<string> {
     try {
       // Validate inputs
       if (!Array.isArray(landmarks) || landmarks.length === 0) {
@@ -53,7 +53,9 @@ export class ActivityService implements IActivityService {
         createdBy: metadata.createdBy,
         createdAt: new Date(),
         isPublic: metadata.isPublic,
-        landmarks: [...landmarks] // Deep copy
+        imageData: imageData,
+        landmarks: [...landmarks], // Deep copy
+        poseData: [...landmarks] // Store separately as poseData for compatibility
       }
 
       // Validate complete activity

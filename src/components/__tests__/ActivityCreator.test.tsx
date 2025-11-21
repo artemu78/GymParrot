@@ -163,7 +163,8 @@ describe("ActivityCreator", () => {
             type: "pose",
             createdBy: "trainer",
             isPublic: true,
-          })
+          }),
+          expect.stringContaining("data:image/jpeg;base64")
         );
         expect(onActivityCreated).toHaveBeenCalledWith("pose-123");
       },
