@@ -327,8 +327,8 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to start practice";
+      stopPractice();
       handleError(message);
-      setIsTracking(false);
     }
   }, [activity, practiceState, clearError, handleError, stopPractice]);
 
