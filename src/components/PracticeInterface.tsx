@@ -11,17 +11,25 @@ import type {
   Activity,
   DifficultyLevel,
   ComparisonResult,
-  TimestampedLandmarks,
 } from "../types";
 
 interface PracticeInterfaceProps {
   activityId: string;
+  initialDifficulty?: DifficultyLevel;
   onComplete?: (score: number) => void;
   onError?: (error: string) => void;
+  onDifficultyChange?: (difficulty: DifficultyLevel) => void;
   className?: string;
 }
 
-type PracticeState = "loading" | "ready" | "practicing" | "completed" | "error";
+type PracticeState =
+  | "loading"
+  | "ready"
+  | "countdown"
+  | "practicing"
+  | "processing" // New state for analyzing result
+  | "completed"
+  | "error";
 
 interface PracticeSession {
   startTime: number;
@@ -33,13 +41,17 @@ interface PracticeSession {
 
 const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   activityId,
+  initialDifficulty = "medium",
   onComplete,
   onError,
+  onDifficultyChange,
   className = "",
 }) => {
   const [activity, setActivity] = useState<Activity | null>(null);
   const [practiceState, setPracticeState] = useState<PracticeState>("loading");
-  const [difficulty, setDifficulty] = useState<DifficultyLevel>("medium");
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>(
+    initialDifficulty
+  );
   const [currentLandmarks, setCurrentLandmarks] = useState<PoseLandmark[]>([]);
   const [comparisonResult, setComparisonResult] =
     useState<ComparisonResult | null>(null);
@@ -54,9 +66,32 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   const [isTracking, setIsTracking] = useState(false);
   const [isCameraTesting, setIsCameraTesting] = useState(false);
 
+  // New states for the requested features
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopTrackingRef = useRef<(() => void) | null>(null);
   const isInitializedRef = useRef<boolean>(false);
+
+  // Ref to access latest landmarks in callbacks without triggering effects
+  const currentLandmarksRef = useRef<PoseLandmark[]>([]);
+
+  // Sync ref with state
+  useEffect(() => {
+    currentLandmarksRef.current = currentLandmarks;
+  }, [currentLandmarks]);
+
+  // Update internal difficulty state when prop changes
+  useEffect(() => {
+    setDifficulty(initialDifficulty);
+  }, [initialDifficulty]);
+
+  // Notify parent of difficulty change
+  const handleDifficultyChange = (newDifficulty: DifficultyLevel) => {
+    setDifficulty(newDifficulty);
+    onDifficultyChange?.(newDifficulty);
+  };
 
   // Load activity data
   useEffect(() => {
@@ -94,8 +129,30 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     [onError]
   );
 
+  const stopPractice = useCallback(() => {
+    if (stopTrackingRef.current) {
+      stopTrackingRef.current();
+      stopTrackingRef.current = null;
+    }
+    setIsTracking(false);
+    webcamService.stopVideoStream();
+    isInitializedRef.current = false;
+  }, []);
+
+  const resetPractice = useCallback(() => {
+    stopPractice();
+    setPracticeState("ready");
+    setCountdown(null);
+    setCapturedImage(null);
+    setComparisonResult(null);
+    setCurrentLandmarks([]);
+  }, [stopPractice]);
+
   const handleVideoReady = useCallback(
     async (video: HTMLVideoElement) => {
+      // We only auto-start stream if we are testing camera or counting down/practicing
+      if (!isCameraTesting && practiceState === "ready") return;
+
       if (isInitializedRef.current) return;
 
       try {
@@ -111,148 +168,152 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
         handleError(message);
       }
     },
-    [handleError]
+    [handleError, isCameraTesting, practiceState]
   );
+
+  const handleCaptureAndCompare = useCallback(async () => {
+    if (!videoRef.current || !activity) return;
+
+    try {
+      setPracticeState("processing");
+
+      // 1. Capture Image
+      const video = videoRef.current;
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        // Mirror the image to match the preview
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, 0, 0);
+        setCapturedImage(canvas.toDataURL("image/jpeg"));
+      }
+
+      // 2. Capture Landmarks & Stop Tracking
+      // Use ref to get latest landmarks
+      const capturedLandmarks = [...currentLandmarksRef.current];
+
+      // Stop tracking and camera
+      stopPractice();
+
+      // 3. Compare
+      if (activity.type === "pose" && activity.poseData) {
+        const result = await comparisonService.comparePoses(
+          activity.poseData,
+          capturedLandmarks,
+          difficulty
+        );
+
+        setComparisonResult(result);
+
+        // Update session stats
+        setSession((prev) => {
+          const newAttempts = prev.attempts + 1;
+          const newSuccessful = result.isMatch
+            ? prev.successfulMatches + 1
+            : prev.successfulMatches;
+          const newTotalScore = prev.totalScore + result.score;
+          const newBestScore = Math.max(prev.bestScore, result.score);
+
+          return {
+            ...prev,
+            attempts: newAttempts,
+            successfulMatches: newSuccessful,
+            totalScore: newTotalScore,
+            bestScore: newBestScore,
+          };
+        });
+
+        setPracticeState("completed");
+        onComplete?.(result.score);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to process result";
+      handleError(message);
+    }
+  }, [activity, difficulty, onComplete, handleError, stopPractice]);
+
+  // Countdown logic
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (practiceState === "countdown" && countdown !== null) {
+      if (countdown > 0) {
+        timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      } else {
+        // Countdown finished, trigger capture
+        // We use the stable callback
+        handleCaptureAndCompare();
+      }
+    }
+    return () => clearTimeout(timer);
+  }, [practiceState, countdown, handleCaptureAndCompare]);
 
   const startPractice = useCallback(async () => {
     if (!videoRef.current || !activity || practiceState !== "ready") return;
 
     try {
-      setPracticeState("practicing");
-      setIsTracking(true);
       clearError();
+      setCapturedImage(null);
+      setComparisonResult(null);
 
-      // Initialize camera and pose detection if not already running
+      // Initialize camera first to ensure user can see themselves
       await mediaPipeService.initializePoseLandmarker();
       await webcamService.startVideoStream(videoRef.current);
-
-      // Wait a bit for video dimensions to be available
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Ensure video element has valid dimensions before starting pose detection
-      const video = videoRef.current;
-      if (!video) {
-        throw new Error("Video element no longer available");
-      }
       
-      if (video.videoWidth === 0 || video.videoHeight === 0) {
-        throw new Error("Video stream not ready. Please wait for camera to initialize.");
-      }
+      // Wait a bit for video dimensions
+      await new Promise(resolve => setTimeout(resolve, 200));
 
-      // Reset session for new practice
-      setSession({
-        startTime: Date.now(),
-        attempts: 0,
-        successfulMatches: 0,
-        totalScore: 0,
-        bestScore: 0,
-      });
+      const video = videoRef.current;
+      if (!video || video.videoWidth === 0) {
+         throw new Error("Camera not ready. Please try again.");
+      }
 
       if (activity.type === "pose") {
-        // Start continuous pose comparison for pose activities
+        // For pose, we start tracking for visualization, then countdown
+        setPracticeState("countdown");
+        setCountdown(3);
+        setIsTracking(true);
+
+        // Start tracking for visual feedback during countdown
         const stopTracking = await mediaPipeService.startMovementTracking(
           videoRef.current,
-          async (landmarks, timestamp) => {
+          (landmarks) => {
             setCurrentLandmarks(landmarks);
-
-            if (activity.poseData) {
-              // Compare current pose with target pose
-              const result = await comparisonService.comparePoses(
-                landmarks,
-                activity.poseData,
-                difficulty
-              );
-
-              setComparisonResult(result);
-
-              // Update session stats
-              setSession((prev) => {
-                const newAttempts = prev.attempts + 1;
-                const newSuccessful = result.isMatch
-                  ? prev.successfulMatches + 1
-                  : prev.successfulMatches;
-                const newTotalScore = prev.totalScore + result.score;
-                const newBestScore = Math.max(prev.bestScore, result.score);
-
-                return {
-                  ...prev,
-                  attempts: newAttempts,
-                  successfulMatches: newSuccessful,
-                  totalScore: newTotalScore,
-                  bestScore: newBestScore,
-                };
-              });
-            }
           },
           {
-            duration: 60000, // 1 minute practice session
-            onComplete: () => {
-              setPracticeState("completed");
-              setIsTracking(false);
-              const finalScore = session.bestScore;
-              onComplete?.(finalScore);
-            },
+            duration: Infinity, // Run until we manually stop
             onError: (error) => {
-              setError(error.message);
-              setIsTracking(false);
-            },
+              console.error("Tracking error", error);
+            }
           }
         );
-
         stopTrackingRef.current = stopTracking;
+
       } else if (activity.type === "movement" && activity.movementData) {
-        // Start movement sequence comparison
+        // Original logic for movement
+        setPracticeState("practicing");
+        setIsTracking(true);
+
         const stopTracking = await mediaPipeService.startMovementTracking(
           videoRef.current,
-          (landmarks, timestamp) => {
+          (landmarks) => {
             setCurrentLandmarks(landmarks);
           },
           {
             duration: activity.duration || 10000,
             onComplete: async () => {
-              try {
-                // Compare recorded movement with target movement
-                const recordedSequence: TimestampedLandmarks[] = [];
-                // This would be populated during tracking - simplified for now
-
-                const result = await comparisonService.compareMovementSequence(
-                  recordedSequence,
-                  activity.movementData!,
-                  difficulty
-                );
-
-                setComparisonResult(result);
-                setPracticeState("completed");
-                setIsTracking(false);
-
-                // Update final session stats
-                setSession((prev) => ({
-                  ...prev,
-                  attempts: prev.attempts + 1,
-                  successfulMatches: result.isMatch
-                    ? prev.successfulMatches + 1
-                    : prev.successfulMatches,
-                  totalScore: prev.totalScore + result.score,
-                  bestScore: Math.max(prev.bestScore, result.score),
-                }));
-
-                onComplete?.(result.score);
-              } catch (error) {
-                const message =
-                  error instanceof Error
-                    ? error.message
-                    : "Failed to compare movement";
-                setError(message);
-                setIsTracking(false);
-              }
+              stopPractice();
+              setPracticeState("completed");
             },
             onError: (error) => {
-              setError(error.message);
+              handleError(error.message);
               setIsTracking(false);
             },
           }
         );
-
         stopTrackingRef.current = stopTracking;
       }
     } catch (error) {
@@ -260,42 +321,9 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
         error instanceof Error ? error.message : "Failed to start practice";
       setError(message);
       setIsTracking(false);
+      setPracticeState("ready");
     }
-  }, [
-    videoRef,
-    activity,
-    practiceState,
-    difficulty,
-    clearError,
-    handleError,
-    session.bestScore,
-    onComplete,
-  ]);
-
-  const stopPractice = useCallback(() => {
-    if (stopTrackingRef.current) {
-      stopTrackingRef.current();
-      stopTrackingRef.current = null;
-    }
-    setIsTracking(false);
-    setPracticeState("ready");
-    setComparisonResult(null);
-    
-    // Turn off camera to conserve resources
-    webcamService.stopVideoStream();
-  }, []);
-
-  const resetPractice = useCallback(() => {
-    stopPractice();
-    setSession({
-      startTime: Date.now(),
-      attempts: 0,
-      successfulMatches: 0,
-      totalScore: 0,
-      bestScore: 0,
-    });
-    setComparisonResult(null);
-  }, [stopPractice]);
+  }, [activity, practiceState, clearError, handleError, stopPractice]);
 
   const testCamera = useCallback(async () => {
     if (!videoRef.current) return;
@@ -304,43 +332,26 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       setIsCameraTesting(true);
       clearError();
 
-      // Initialize camera and pose detection
       await mediaPipeService.initializePoseLandmarker();
       await webcamService.startVideoStream(videoRef.current);
 
-      // Wait a bit for video dimensions to be available
-      // Sometimes loadeddata fires before dimensions are set
       await new Promise(resolve => setTimeout(resolve, 100));
 
-      // Ensure video element has valid dimensions before starting pose detection
       const video = videoRef.current;
-      if (!video) {
-        throw new Error("Video element no longer available");
-      }
-      
-      if (video.videoWidth === 0 || video.videoHeight === 0) {
-        throw new Error("Video stream not ready. Please wait for camera to initialize.");
+      if (!video || video.videoWidth === 0) {
+        throw new Error("Video stream not ready.");
       }
 
-      // Start tracking to show landmarks (infinite duration until user stops)
       const stopTracking = await mediaPipeService.startMovementTracking(
         video,
         (landmarks) => {
           setCurrentLandmarks(landmarks);
         },
         {
-          duration: Infinity, // Run indefinitely until user clicks "Stop Test"
-          onComplete: () => {
-            // This won't be called with Infinity duration
-            setIsCameraTesting(false);
-            setCurrentLandmarks([]);
-            webcamService.stopVideoStream();
-          },
+          duration: Infinity,
           onError: (error) => {
             setError(error.message);
-            setIsCameraTesting(false);
-            setCurrentLandmarks([]);
-            webcamService.stopVideoStream();
+            stopCameraTest();
           },
         }
       );
@@ -361,91 +372,67 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     }
     setIsCameraTesting(false);
     setCurrentLandmarks([]);
-    
-    // Turn off camera to conserve resources
     webcamService.stopVideoStream();
+    isInitializedRef.current = false;
   }, []);
 
-  const getDifficultyColor = (level: DifficultyLevel) => {
-    switch (level) {
-      case "soft":
-        return "text-green-600 bg-green-100";
-      case "medium":
-        return "text-yellow-600 bg-yellow-100";
-      case "hard":
-        return "text-red-600 bg-red-100";
-      default:
-        return "text-gray-600 bg-gray-100";
-    }
-  };
-
-  const getMatchFeedback = () => {
+  const renderResultOverlay = () => {
     if (!comparisonResult) return null;
 
-    if (comparisonResult.isMatch) {
-      return (
-        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">
-          <div className="flex items-center">
-            <svg
-              className="w-5 h-5 mr-2"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fillRule="evenodd"
-                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                clipRule="evenodd"
-              />
-            </svg>
-            <span className="font-medium">
-              Great match! Score: {Math.round(comparisonResult.score * 100)}%
-            </span>
+    const percentage = Math.round(comparisonResult.score * 100);
+    const isSuccess = comparisonResult.isMatch;
+    const colorClass = isSuccess ? "text-green-600" : "text-yellow-600";
+    const bgClass = isSuccess ? "bg-green-50" : "bg-yellow-50";
+    const borderClass = isSuccess ? "border-green-200" : "border-yellow-200";
+
+    return (
+      <div className={`absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 z-20`}>
+        <div className={`bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4 ${borderClass} border-2`}>
+          <div className="text-center mb-4">
+            <h3 className={`text-2xl font-bold ${colorClass} mb-2`}>
+              {isSuccess ? "Excellent!" : "Good Try!"}
+            </h3>
+            <div className={`text-4xl font-bold ${colorClass}`}>
+              {percentage}%
+            </div>
+            <p className="text-gray-600 mt-2">Accuracy Score</p>
+          </div>
+
+          {comparisonResult.feedback && comparisonResult.feedback.length > 0 && (
+            <div className={`mb-4 p-3 rounded ${bgClass}`}>
+               <p className="font-medium mb-1 text-gray-800">Feedback:</p>
+               <ul className="list-disc list-inside text-sm text-gray-700">
+                 {comparisonResult.feedback.map((item, idx) => (
+                   <li key={idx}>{item}</li>
+                 ))}
+               </ul>
+            </div>
+          )}
+
+          <div className="space-y-3">
+             <button
+               onClick={resetPractice}
+               className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+             >
+               Try Again
+             </button>
+             <button
+                onClick={() => onComplete?.(comparisonResult.score)}
+                className="w-full px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition-colors"
+             >
+               Finish
+             </button>
           </div>
         </div>
-      );
-    } else {
-      return (
-        <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded">
-          <div className="flex items-center mb-2">
-            <svg
-              className="w-5 h-5 mr-2"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fillRule="evenodd"
-                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                clipRule="evenodd"
-              />
-            </svg>
-            <span className="font-medium">
-              Keep trying! Score: {Math.round(comparisonResult.score * 100)}%
-            </span>
-          </div>
-          {comparisonResult.feedback &&
-            comparisonResult.feedback.length > 0 && (
-              <div className="text-sm">
-                <p className="font-medium mb-1">Suggestions:</p>
-                <ul className="list-disc list-inside space-y-1">
-                  {comparisonResult.feedback.map((suggestion, index) => (
-                    <li key={index}>{suggestion}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-        </div>
-      );
-    }
+      </div>
+    );
   };
 
   if (practiceState === "loading") {
     return (
       <div className={`flex items-center justify-center min-h-96 ${className}`}>
         <div className="text-center">
-          <div
-            role="status"
-            className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"
-          ></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading activity...</p>
         </div>
       </div>
@@ -457,20 +444,8 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       <div className={`max-w-4xl mx-auto p-6 ${className}`}>
         <div className="bg-red-50 border border-red-200 rounded-md p-4">
           <div className="flex">
-            <div className="flex-shrink-0">
-              <svg
-                className="h-5 w-5 text-red-400"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </div>
-            <div className="ml-3">
+            <div className="text-red-400 mr-3">⚠️</div>
+            <div>
               <h3 className="text-sm font-medium text-red-800">Error</h3>
               <p className="text-sm text-red-700 mt-1">
                 {error || "Failed to load activity"}
@@ -482,304 +457,170 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     );
   }
 
+  // Determine if buttons should be disabled
+  const isInteractionDisabled =
+    practiceState === "countdown" ||
+    practiceState === "practicing" ||
+    practiceState === "processing";
+
   return (
-    <div className={`max-w-6xl mx-auto p-6 ${className}`}>
+    <div className={`max-w-7xl mx-auto p-4 sm:p-6 ${className}`}>
       <div className="bg-white rounded-lg shadow-lg overflow-hidden">
         {/* Header */}
-        <div className="bg-gray-50 px-6 py-4 border-b">
-          <div className="flex justify-between items-center">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">
-                Practice: {activity.name}
-              </h2>
-              <p className="text-gray-600 mt-1">
-                {activity.type === "pose"
-                  ? "Hold the target pose"
-                  : "Follow the movement sequence"}
-              </p>
-            </div>
-            <div className="flex items-center space-x-4">
-              <div className="text-sm text-gray-600">
-                <span className="font-medium">Success Rate:</span>{" "}
-                {session.attempts > 0
-                  ? Math.round(
-                      (session.successfulMatches / session.attempts) * 100
-                    )
-                  : 0}
-                %
-              </div>
-              <div className="text-sm text-gray-600">
-                <span className="font-medium">Best Score:</span>{" "}
-                {Math.round(session.bestScore * 100)}%
-              </div>
+        <div className="bg-gray-50 px-6 py-4 border-b flex justify-between items-center flex-wrap gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">
+              {activity.name}
+            </h2>
+            <p className="text-gray-600">
+              {activity.type === "pose" ? "Match the pose" : "Follow the movement"}
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-4">
+            <div className="bg-white px-3 py-1 rounded border border-gray-200 text-sm">
+               <span className="text-gray-500">Best:</span>
+               <span className="ml-1 font-bold text-blue-600">{Math.round(session.bestScore * 100)}%</span>
             </div>
           </div>
         </div>
 
         <div className="p-6">
-          {/* Difficulty Selection */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              Difficulty Level
-            </label>
-            <div className="flex space-x-3">
-              {(["soft", "medium", "hard"] as DifficultyLevel[]).map(
-                (level) => (
+          {/* Difficulty Selector */}
+          <div className="mb-6 flex justify-center">
+             <div className="inline-flex bg-gray-100 p-1 rounded-lg">
+               {(["soft", "medium", "hard"] as DifficultyLevel[]).map((level) => (
                   <button
                     key={level}
-                    onClick={() => setDifficulty(level)}
-                    disabled={isTracking || isCameraTesting}
-                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                      difficulty === level
-                        ? getDifficultyColor(level)
-                        : "text-gray-600 bg-gray-100 hover:bg-gray-200"
-                    } ${isTracking || isCameraTesting ? "opacity-50 cursor-not-allowed" : ""}`}
+                    onClick={() => handleDifficultyChange(level)}
+                    disabled={isInteractionDisabled}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                       difficulty === level
+                         ? "bg-white text-blue-600 shadow-sm"
+                         : "text-gray-500 hover:text-gray-700"
+                    } ${isInteractionDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
                   >
                     {level === "soft" ? "Easy" : level.charAt(0).toUpperCase() + level.slice(1)}
                   </button>
-                )
-              )}
-            </div>
+               ))}
+             </div>
           </div>
 
-          {/* Error Display */}
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md">
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  <svg
-                    className="h-5 w-5 text-red-400"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm text-red-800">{error}</p>
-                </div>
-                <div className="ml-auto pl-3">
-                  <button
-                    onClick={clearError}
-                    className="text-red-400 hover:text-red-600"
-                  >
-                    <span className="sr-only">Dismiss</span>
-                    <svg
-                      className="h-5 w-5"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                        clipRule="evenodd"
+          {/* Main Comparison Area */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+             {/* Original Activity Image */}
+             <div className="flex flex-col">
+                <h3 className="text-lg font-medium text-gray-900 mb-3">Target Pose</h3>
+                <div className="relative aspect-video bg-gray-100 rounded-lg overflow-hidden border border-gray-200 shadow-inner">
+                   {activity.imageData ? (
+                      <img
+                        src={activity.imageData}
+                        alt="Target Pose"
+                        className="w-full h-full object-contain"
                       />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-            {/* Camera Preview - Takes 3 columns */}
-            <div className="lg:col-span-4 xl:col-span-3">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">
-                Your Performance
-              </h3>
-              <WebcamPreview
-                ref={videoRef}
-                isActive={true}
-                showLandmarks={true}
-                landmarks={currentLandmarks}
-                isRecording={isTracking}
-                onVideoReady={handleVideoReady}
-                onError={handleError}
-                width={640}
-                height={480}
-                className="w-full max-w-2xl mx-auto xl:mx-0"
-              />
-            </div>
-
-            {/* Feedback and Controls - Takes 2 columns */}
-            <div className="lg:col-span-1 xl:col-span-2">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">
-                Feedback
-              </h3>
-
-              {/* Real-time Feedback */}
-              <div className="mb-6">{getMatchFeedback()}</div>
-
-              {/* Practice Controls */}
-              <div className="space-y-4">
-                {practiceState === "ready" && !isCameraTesting && (
-                  <div className="space-y-3">
-                    <button
-                      onClick={startPractice}
-                      className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 font-medium"
-                    >
-                      Start Practice
-                    </button>
-                    <button
-                      onClick={testCamera}
-                      className="w-full px-6 py-3 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 font-medium"
-                    >
-                      Test Camera
-                    </button>
-                  </div>
-                )}
-
-                {isCameraTesting && (
-                  <div className="space-y-3">
-                    <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-                      <div className="flex items-center">
-                        <svg
-                          className="w-5 h-5 text-blue-600 mr-2"
-                          fill="currentColor"
-                          viewBox="0 0 20 20"
-                        >
-                          <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
-                        </svg>
-                        <span className="text-sm font-medium text-blue-800">
-                          Camera test in progress... Move around to see pose detection
-                        </span>
+                   ) : (
+                      <div className="flex items-center justify-center h-full text-gray-400">
+                        No image available
                       </div>
-                    </div>
-                    <button
-                      onClick={stopCameraTest}
-                      className="w-full px-6 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 font-medium"
-                    >
-                      Stop Test
-                    </button>
-                  </div>
-                )}
-
-                {practiceState === "practicing" && (
-                  <div className="space-y-3">
-                    <button
-                      onClick={stopPractice}
-                      className="w-full px-6 py-3 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 font-medium"
-                    >
-                      Stop Practice
-                    </button>
-                    <button
-                      onClick={resetPractice}
-                      className="w-full px-6 py-3 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 font-medium"
-                    >
-                      Reset Session
-                    </button>
-                  </div>
-                )}
-
-                {practiceState === "completed" && (
-                  <div className="space-y-3">
-                    <div className="bg-green-50 border border-green-200 rounded-md p-4">
-                      <h4 className="text-lg font-medium text-green-800 mb-2">
-                        Practice Complete!
-                      </h4>
-                      <div className="text-sm text-green-700 space-y-1">
-                        <p>
-                          <span className="font-medium">Final Score:</span>{" "}
-                          {Math.round(session.bestScore * 100)}%
-                        </p>
-                        <p>
-                          <span className="font-medium">Total Attempts:</span>{" "}
-                          {session.attempts}
-                        </p>
-                        <p>
-                          <span className="font-medium">
-                            Successful Matches:
-                          </span>{" "}
-                          {session.successfulMatches}
-                        </p>
-                        <p>
-                          <span className="font-medium">Success Rate:</span>{" "}
-                          {session.attempts > 0
-                            ? Math.round(
-                                (session.successfulMatches / session.attempts) *
-                                  100
-                              )
-                            : 0}
-                          %
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={resetPractice}
-                      className="w-full px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 font-medium"
-                    >
-                      Practice Again
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Session Stats */}
-              <div className="mt-6 p-4 bg-gray-50 rounded-md">
-                <h4 className="text-sm font-medium text-gray-900 mb-3">
-                  Session Statistics
-                </h4>
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-600">Attempts:</span>
-                    <span className="ml-2 font-medium">{session.attempts}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Matches:</span>
-                    <span className="ml-2 font-medium">
-                      {session.successfulMatches}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Best Score:</span>
-                    <span className="ml-2 font-medium">
-                      {Math.round(session.bestScore * 100)}%
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Avg Score:</span>
-                    <span className="ml-2 font-medium">
-                      {session.attempts > 0
-                        ? Math.round(
-                            (session.totalScore / session.attempts) * 100
-                          )
-                        : 0}
-                      %
-                    </span>
-                  </div>
+                   )}
                 </div>
-              </div>
-            </div>
+             </div>
+
+             {/* Practice Area */}
+             <div className="flex flex-col">
+                <h3 className="text-lg font-medium text-gray-900 mb-3">Your Pose</h3>
+                <div className="relative aspect-video bg-black rounded-lg overflow-hidden shadow-inner">
+
+                   {/* Camera View */}
+                   <div className={`${capturedImage ? 'hidden' : 'block'} w-full h-full`}>
+                      <WebcamPreview
+                        ref={videoRef}
+                        isActive={true} // We control actual stream via webcamService, this prop mainly affects internal UI
+                        showLandmarks={true}
+                        landmarks={currentLandmarks}
+                        isRecording={isTracking}
+                        onVideoReady={handleVideoReady}
+                        onError={handleError}
+                        className="w-full h-full"
+                      />
+                   </div>
+
+                   {/* Captured Image View (Result) */}
+                   {capturedImage && (
+                      <div className="absolute inset-0 z-10 bg-black">
+                         <img
+                           src={capturedImage}
+                           alt="Your Attempt"
+                           className="w-full h-full object-contain"
+                           // No mirror here because image is already mirrored during capture
+                         />
+                         {/* Overlay Skeleton on captured image could go here */}
+                      </div>
+                   )}
+
+                   {/* Countdown Overlay */}
+                   {practiceState === "countdown" && countdown !== null && (
+                      <div className="absolute inset-0 z-20 flex items-center justify-center bg-black bg-opacity-40 backdrop-blur-sm">
+                         <div className="text-9xl font-bold text-white animate-pulse">
+                           {countdown === 0 ? "POSE!" : countdown}
+                         </div>
+                      </div>
+                   )}
+
+                   {/* Result Overlay */}
+                   {practiceState === "completed" && renderResultOverlay()}
+
+                </div>
+             </div>
           </div>
 
-          {/* Instructions */}
-          <div className="mt-8 p-4 bg-blue-50 border border-blue-200 rounded-md">
-            <h3 className="text-sm font-medium text-blue-800 mb-2">
-              How to Practice:
-            </h3>
-            <ul className="text-sm text-blue-700 space-y-1">
-              {activity.type === "pose" ? (
+          {/* Controls */}
+          <div className="mt-8 flex justify-center gap-4">
+             {practiceState === "ready" && !isCameraTesting && (
                 <>
-                  <li>• Select your preferred difficulty level</li>
-                  <li>• Click "Start Practice" to begin pose detection</li>
-                  <li>• Position yourself to match the target pose</li>
-                  <li>• Watch for real-time feedback and scoring</li>
-                  <li>• Try to maintain the pose for consistent matches</li>
+                  <button
+                    onClick={testCamera}
+                    className="px-6 py-3 bg-gray-100 text-gray-700 rounded-md font-medium hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  >
+                    Test Camera
+                  </button>
+                  <button
+                    onClick={startPractice}
+                    className="px-8 py-3 bg-blue-600 text-white rounded-md font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-lg transform transition hover:scale-105"
+                  >
+                    Start Practice
+                  </button>
                 </>
-              ) : (
-                <>
-                  <li>• Select your preferred difficulty level</li>
-                  <li>• Click "Start Practice" to begin movement tracking</li>
-                  <li>• Follow the movement sequence as closely as possible</li>
-                  <li>• Complete the full sequence within the time limit</li>
-                  <li>• Review your performance summary at the end</li>
-                </>
-              )}
-            </ul>
+             )}
+
+             {isCameraTesting && (
+                <button
+                  onClick={stopCameraTest}
+                  className="px-6 py-3 bg-red-600 text-white rounded-md font-medium hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                >
+                  Stop Camera Test
+                </button>
+             )}
+
+             {(practiceState === "countdown" || practiceState === "practicing") && (
+                <button
+                  onClick={stopPractice} // Stops and resets
+                  className="px-6 py-3 bg-red-600 text-white rounded-md font-medium hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                >
+                  Cancel
+                </button>
+             )}
+          </div>
+
+          {/* Tips */}
+          <div className="mt-10 bg-blue-50 p-4 rounded-md border border-blue-100">
+             <h4 className="font-medium text-blue-800 mb-2">💡 Pro Tips:</h4>
+             <ul className="text-sm text-blue-700 space-y-1 ml-4 list-disc">
+                <li>Ensure your whole body is visible in the camera frame.</li>
+                <li>Lighting should be bright enough for accurate detection.</li>
+                <li>Hold the pose steady when the countdown reaches 0.</li>
+                <li>Check the target image on the left and mirror it.</li>
+             </ul>
           </div>
         </div>
       </div>
