@@ -1,0 +1,16 @@
+name: Run tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'  # Set your Node.js version as required
+      - run: npm ci           # Faster and more reliable than npm install for CI
+      - run: npm run test
