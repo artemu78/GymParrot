@@ -5,7 +5,6 @@ import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { routeTree } from "../routeTree.gen";
 
 // Mock the services
-vi.mock("../services/ActivityService");
 vi.mock("../services/MediaPipeService");
 vi.mock("../services/WebcamService");
 vi.mock("../services/ComparisonService");
@@ -59,26 +58,37 @@ vi.mock("../components/PracticeInterface", () => ({
 }));
 
 // Mock ActivityService for activity detail route
-const mockActivityService = {
-  getActivityById: vi.fn().mockResolvedValue({
-    id: "test-activity-1",
-    name: "Test Activity",
-    type: "pose",
-    createdAt: new Date().toISOString(),
-    duration: 30,
-  }),
-};
+const { mockGetActivityById } = vi.hoisted(() => ({
+  mockGetActivityById: vi.fn(),
+}));
 
 vi.mock("../services/ActivityService", () => ({
-  ActivityService: vi.fn(() => mockActivityService),
+  ActivityService: vi.fn(function () {
+    return {
+      getActivityById: mockGetActivityById,
+    };
+  }),
 }));
+
+const mockActivityService = {
+  getActivityById: mockGetActivityById,
+};
 
 describe("Routing and Navigation", () => {
   let router: any;
 
   beforeEach(() => {
-    router = createRouter({ routeTree });
     vi.clearAllMocks();
+    router = createRouter({ routeTree });
+
+    // Default mock implementation
+    mockGetActivityById.mockResolvedValue({
+      id: "test-activity-1",
+      name: "Test Activity",
+      type: "pose",
+      createdAt: new Date().toISOString(),
+      duration: 30,
+    });
   });
 
   const renderWithRouter = async (initialLocation = "/") => {
