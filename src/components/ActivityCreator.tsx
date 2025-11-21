@@ -311,6 +311,7 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
     stopCamera,
     onActivityCreated,
     handleError,
+    capturedImage,
   ]);
 
   const retakePose = useCallback(() => {
