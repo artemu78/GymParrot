@@ -1,2 +1,2 @@
-export { default } from "./ActivityCreatorRefactored";
+export { default } from "./ActivityCreator";
 export type { ActivityCreatorProps, RecordingState } from "./types";
