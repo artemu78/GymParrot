@@ -47,7 +47,7 @@ describe('Service Integration', () => {
     const sequence: TimestampedLandmarks[] = []
     
     for (let i = 0; i < 90; i++) { // 3 seconds at 30fps
-      const landmarks: PoseLandmark[] = Array.from({ length: 33 }, (_, j) => ({
+      const landmarks: PoseLandmark[] = Array.from({ length: 33 }, () => ({
         x: 0.5 + Math.sin(i * 0.1) * 0.1, // Simulate movement
         y: 0.5 + Math.cos(i * 0.1) * 0.1,
         z: 0.1,

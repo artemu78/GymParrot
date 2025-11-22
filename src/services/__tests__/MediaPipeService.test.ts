@@ -27,13 +27,26 @@ describe('MediaPipeService', () => {
     }
 
     // Mock video element
-    mockVideo = {
-      readyState: 4, // Default to HAVE_ENOUGH_DATA
-      play: vi.fn().mockResolvedValue(undefined),
-      pause: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn()
-    } as any
+    const video = document.createElement('video');
+    Object.defineProperty(video, 'play', {
+        value: vi.fn().mockResolvedValue(undefined)
+    });
+    Object.defineProperty(video, 'pause', {
+        value: vi.fn()
+    });
+    Object.defineProperty(video, 'readyState', {
+        value: 4,
+        writable: true
+    });
+    Object.defineProperty(video, 'videoWidth', {
+        value: 640,
+        writable: true
+    });
+    Object.defineProperty(video, 'videoHeight', {
+        value: 480,
+        writable: true
+    });
+    mockVideo = video;
 
     // Reset mocks
     vi.clearAllMocks()
@@ -95,7 +108,8 @@ describe('MediaPipeService', () => {
     it('should detect pose from video successfully', async () => {
       const mockResult = {
         landmarks: [[{ x: 0.5, y: 0.5, z: 0.1, visibility: 0.9 }]],
-        worldLandmarks: []
+        worldLandmarks: [],
+        close: vi.fn()
       }
       
       mockPoseLandmarker.detectForVideo.mockReturnValue(mockResult)
@@ -112,7 +126,8 @@ describe('MediaPipeService', () => {
     it('should initialize if not already initialized', async () => {
       const mockResult = {
         landmarks: [[{ x: 0.5, y: 0.5, z: 0.1, visibility: 0.9 }]],
-        worldLandmarks: []
+        worldLandmarks: [],
+        close: vi.fn()
       }
       
       mockPoseLandmarker.detectForVideo.mockReturnValue(mockResult)
@@ -142,11 +157,12 @@ describe('MediaPipeService', () => {
     it('should detect single pose successfully', async () => {
       const mockResult = {
         landmarks: [[{ x: 0.5, y: 0.5, z: 0.1, visibility: 0.9 }]],
-        worldLandmarks: []
+        worldLandmarks: [],
+        close: vi.fn()
       }
       
       mockPoseLandmarker.detectForVideo.mockReturnValue(mockResult)
-      mockVideo.readyState = 4 // HAVE_ENOUGH_DATA
+      Object.defineProperty(mockVideo, 'readyState', { value: 4 }); // HAVE_ENOUGH_DATA
 
       const result = await service.detectSinglePose(mockVideo)
 
@@ -154,7 +170,10 @@ describe('MediaPipeService', () => {
     })
 
     it('should throw error when video not ready', async () => {
-      const notReadyVideo = { ...mockVideo, readyState: 1 } // HAVE_METADATA
+      const notReadyVideo = document.createElement('video');
+      Object.defineProperty(notReadyVideo, 'play', { value: vi.fn().mockResolvedValue(undefined) });
+      Object.defineProperty(notReadyVideo, 'pause', { value: vi.fn() });
+      Object.defineProperty(notReadyVideo, 'readyState', { value: 1, writable: true });
 
       await expect(service.detectSinglePose(notReadyVideo)).rejects.toThrow(MediaPipeError)
     })
@@ -162,7 +181,8 @@ describe('MediaPipeService', () => {
     it('should throw error when no pose detected', async () => {
       const mockResult = {
         landmarks: [],
-        worldLandmarks: []
+        worldLandmarks: [],
+        close: vi.fn()
       }
       
       mockPoseLandmarker.detectForVideo.mockReturnValue(mockResult)
@@ -178,8 +198,9 @@ describe('MediaPipeService', () => {
           { x: 0.5, y: 0.5, z: 0.1, visibility: 0.9 },
           { x: 1.2, y: -0.1, z: 0.2, visibility: 1.5 } // Out of bounds values
         ]],
-        worldLandmarks: []
-      }
+        worldLandmarks: [],
+        close: vi.fn()
+      } as any
 
       const landmarks = service.extractLandmarks(mockResult)
 
@@ -202,8 +223,9 @@ describe('MediaPipeService', () => {
     it('should return empty array for no landmarks', () => {
       const mockResult = {
         landmarks: [],
-        worldLandmarks: []
-      }
+        worldLandmarks: [],
+        close: vi.fn()
+      } as any
 
       const landmarks = service.extractLandmarks(mockResult)
 
@@ -219,7 +241,7 @@ describe('MediaPipeService', () => {
 
   describe('validatePoseQuality', () => {
     it('should validate good quality pose', () => {
-      const landmarks = Array.from({ length: 33 }, (_, i) => ({
+      const landmarks = Array.from({ length: 33 }, () => ({
         x: 0.5,
         y: 0.5,
         z: 0.1,
@@ -332,7 +354,8 @@ describe('MediaPipeService', () => {
     it('should start movement tracking successfully', async () => {
       const mockResult = {
         landmarks: [[{ x: 0.5, y: 0.5, z: 0.1, visibility: 0.9 }]],
-        worldLandmarks: []
+        worldLandmarks: [],
+        close: vi.fn()
       }
       
       mockPoseLandmarker.detectForVideo.mockReturnValue(mockResult)
@@ -376,7 +399,8 @@ describe('MediaPipeService', () => {
     it('should allow early stopping', async () => {
       const mockResult = {
         landmarks: [[{ x: 0.5, y: 0.5, z: 0.1, visibility: 0.9 }]],
-        worldLandmarks: []
+        worldLandmarks: [],
+        close: vi.fn()
       }
       
       mockPoseLandmarker.detectForVideo.mockReturnValue(mockResult)
@@ -414,7 +438,8 @@ describe('MediaPipeService', () => {
     it('should record movement sequence', async () => {
       const mockResult = {
         landmarks: [[{ x: 0.5, y: 0.5, z: 0.1, visibility: 0.9 }]],
-        worldLandmarks: []
+        worldLandmarks: [],
+        close: vi.fn()
       }
       
       mockPoseLandmarker.detectForVideo.mockReturnValue(mockResult)
@@ -430,7 +455,8 @@ describe('MediaPipeService', () => {
     it('should filter low confidence poses', async () => {
       const lowConfidenceResult = {
         landmarks: [[{ x: 0.5, y: 0.5, z: 0.1, visibility: 0.1 }]], // Low visibility
-        worldLandmarks: []
+        worldLandmarks: [],
+        close: vi.fn()
       }
       
       mockPoseLandmarker.detectForVideo.mockReturnValue(lowConfidenceResult)

@@ -6,7 +6,10 @@ import { EmptyState } from "./activity-browser/EmptyState";
 import { LoadingState } from "./activity-browser/LoadingState";
 
 interface ActivityBrowserProps {
+  initialType?: ActivityType | "all";
+  initialDifficulty?: string;
   onActivitySelect?: (activity: Activity) => void;
+  onFilterChange?: (newType?: string, newDifficulty?: string) => void;
   onError?: (error: string) => void;
   className?: string;
 }
@@ -17,7 +20,9 @@ interface FilterState {
 }
 
 const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
+  initialType = "all",
   onActivitySelect,
+  onFilterChange,
   onError,
   className = "",
 }) => {
@@ -26,7 +31,7 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>({
-    type: "all",
+    type: initialType || "all",
     search: "",
   });
 
@@ -99,8 +104,14 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
   );
 
   const handleFilterChange = useCallback((newFilters: Partial<FilterState>) => {
-    setFilters((prev) => ({ ...prev, ...newFilters }));
-  }, []);
+    setFilters((prev) => {
+        const updated = { ...prev, ...newFilters };
+        if (newFilters.type && onFilterChange) {
+             onFilterChange(newFilters.type === "all" ? undefined : newFilters.type);
+        }
+        return updated;
+    });
+  }, [onFilterChange]);
 
   const hasActiveFilters =
     filters.type !== "all" || filters.search.trim().length > 0;

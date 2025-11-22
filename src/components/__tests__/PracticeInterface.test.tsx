@@ -391,7 +391,7 @@ describe("PracticeInterface", () => {
           let completeCallback: () => void = () => {};
 
           vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-              async (video, onFrame, options) => {
+              async (_video, _onFrame, options) => {
                   if (options?.onComplete) {
                       completeCallback = options.onComplete as any;
                   }

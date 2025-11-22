@@ -8,7 +8,7 @@ interface UseWebcamPreviewOptions {
 }
 
 interface UseWebcamPreviewReturn {
-  videoRef: React.RefObject<HTMLVideoElement>
+  videoRef: React.RefObject<HTMLVideoElement | null>
   isActive: boolean
   isReady: boolean
   error: string | null

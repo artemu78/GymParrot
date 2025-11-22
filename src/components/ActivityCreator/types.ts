@@ -10,7 +10,9 @@ export type RecordingState =
   | "error";
 
 export interface ActivityCreatorProps {
+  initialType?: "pose" | "movement";
   onActivityCreated?: (activityId: string) => void;
   onError?: (error: string) => void;
+  onTypeChange?: (type: "pose" | "movement") => void;
   className?: string;
 }

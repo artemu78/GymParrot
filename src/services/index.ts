@@ -4,13 +4,13 @@ import type { PoseLandmark, TimestampedLandmarks, Activity, ActivityMetadata, Co
 import type { PoseLandmarker, PoseLandmarkerResult } from '@mediapipe/tasks-vision'
 
 // Service implementations
-export { MediaPipeService } from './MediaPipeService'
+export { MediaPipeService as MediaPipeServiceImpl } from './MediaPipeService'
 export { default as mediaPipeService } from './MediaPipeService'
-export { WebcamService } from './WebcamService'
+export { WebcamService as WebcamServiceImpl } from './WebcamService'
 export { default as webcamService } from './WebcamService'
-export { ActivityService } from './ActivityService'
+export { ActivityService as ActivityServiceImpl } from './ActivityService'
 export { default as activityService } from './ActivityService'
-export { ComparisonService } from './ComparisonService'
+export { ComparisonService as ComparisonServiceImpl } from './ComparisonService'
 export { default as comparisonService } from './ComparisonService'
 export { LocalStorageService, BackendStorageService } from './StorageService'
 export { default as storageService } from './StorageService'
