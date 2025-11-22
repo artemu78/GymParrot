@@ -242,7 +242,7 @@ describe("PracticeInterface", () => {
 
     it("should disable difficulty buttons during practice", async () => {
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options) => {
+        (_video, _onLandmarks, _options) => {
           // Simulate ongoing tracking
           return Promise.resolve(() => {});
         }
@@ -295,7 +295,7 @@ describe("PracticeInterface", () => {
 
     it("should show stop and reset buttons during practice", async () => {
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options) => {
+        (_video, _onLandmarks, _options) => {
           return Promise.resolve(() => {});
         }
       );
@@ -358,10 +358,10 @@ describe("PracticeInterface", () => {
         successResult
       );
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options) => {
+        (_video, _onLandmarks, _options) => {
           // Simulate pose detection
           setTimeout(() => {
-            onLandmarks([{ x: 0.5, y: 0.5, z: 0, visibility: 1 }], Date.now());
+            _onLandmarks([{ x: 0.5, y: 0.5, z: 0, visibility: 1 }], Date.now());
           }, 100);
           return Promise.resolve(() => {});
         }
@@ -390,9 +390,9 @@ describe("PracticeInterface", () => {
 
       vi.mocked(comparisonService.comparePoses).mockResolvedValue(failResult);
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options) => {
+        (_video, _onLandmarks, _options) => {
           setTimeout(() => {
-            onLandmarks([{ x: 0.5, y: 0.5, z: 0, visibility: 1 }], Date.now());
+            _onLandmarks([{ x: 0.5, y: 0.5, z: 0, visibility: 1 }], Date.now());
           }, 100);
           return Promise.resolve(() => {});
         }
@@ -448,9 +448,9 @@ describe("PracticeInterface", () => {
         successResult
       );
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options) => {
+        (_video, _onLandmarks, _options) => {
           setTimeout(() => {
-            onLandmarks([{ x: 0.5, y: 0.5, z: 0, visibility: 1 }], Date.now());
+            _onLandmarks([{ x: 0.5, y: 0.5, z: 0, visibility: 1 }], Date.now());
           }, 100);
           return Promise.resolve(() => {});
         }
@@ -464,10 +464,6 @@ describe("PracticeInterface", () => {
       });
 
       await waitFor(() => {
-        // Check that at least one Best Score: 80% element exists (could be in header or stats)
-        // Since "Best Score: 80%" is not exact text because of the span structure
-        // We look for the value "80%" near "Best Score:"
-        const bestScoreLabels = screen.getAllByText("Best Score:");
         const bestScoreValue = screen.getAllByText("80%");
         expect(bestScoreValue.length).toBeGreaterThan(0);
       });
@@ -483,7 +479,7 @@ describe("PracticeInterface", () => {
 
     it("should handle movement sequence practice", async () => {
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options = {}) => {
+        (_video, _onLandmarks, options = {}) => {
           // Simulate movement completion
           setTimeout(() => {
             options.onComplete?.();
@@ -517,7 +513,7 @@ describe("PracticeInterface", () => {
         finalResult
       );
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options = {}) => {
+        (_video, _onLandmarks, options = {}) => {
           setTimeout(() => {
             options.onComplete?.();
           }, 100);
@@ -705,12 +701,12 @@ describe("PracticeInterface", () => {
     });
 
     it("should show completion summary", async () => {
-      let completeCallback: (() => void) | null = null;
+      const callbackCapture = { onComplete: null as (() => void) | null };
       
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options = {}) => {
+        (_video, _onLandmarks, options = {}) => {
           // Store the complete callback to call it manually
-          completeCallback = options.onComplete || null;
+          callbackCapture.onComplete = options.onComplete || null;
           return Promise.resolve(() => {});
         }
       );
@@ -743,13 +739,13 @@ describe("PracticeInterface", () => {
 
       // Wait for tracking to start
       await waitFor(() => {
-        expect(completeCallback).not.toBeNull();
+        expect(callbackCapture.onComplete).not.toBeNull();
       });
 
       // Manually trigger completion
-      if (completeCallback) {
+      if (callbackCapture.onComplete) {
         // Wrap in act to avoid warnings as this updates state
-        const callback = completeCallback;
+        const callback = callbackCapture.onComplete;
         await React.act(async () => {
           callback();
         });
@@ -769,7 +765,7 @@ describe("PracticeInterface", () => {
 
     it("should allow restarting practice", async () => {
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options = {}) => {
+        (_video, _onLandmarks, options = {}) => {
           setTimeout(() => {
             options.onComplete?.();
           }, 100);
@@ -869,7 +865,7 @@ describe("PracticeInterface", () => {
 
     it("should show camera test in progress message", async () => {
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options) => {
+        (_video, _onLandmarks, _options) => {
           return Promise.resolve(() => {});
         }
       );
@@ -940,7 +936,7 @@ describe("PracticeInterface", () => {
 
     it("should disable difficulty buttons during camera test", async () => {
       vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-        (video, onLandmarks, options) => {
+        (_video, _onLandmarks, _options) => {
           return Promise.resolve(() => {});
         }
       );

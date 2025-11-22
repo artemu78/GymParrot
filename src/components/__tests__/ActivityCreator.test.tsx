@@ -40,8 +40,6 @@ vi.mock("../WebcamPreview", () => ({
 }));
 
 describe("ActivityCreator", () => {
-  const mockVideoElement = document.createElement("video");
-
   beforeEach(() => {
     vi.clearAllMocks();
 
@@ -191,7 +189,7 @@ describe("ActivityCreator", () => {
 
     // Mock movement tracking
     vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
-      async (video, onPoseDetected, options) => {
+      async (_video, onPoseDetected, options) => {
         // Simulate pose detection
         onPoseDetected([{ x: 0.5, y: 0.5, z: 0.1, visibility: 0.9 }], 100);
 

@@ -141,7 +141,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
         // Start continuous pose comparison for pose activities
         const stopTracking = await mediaPipeService.startMovementTracking(
           videoRef.current,
-          async (landmarks, timestamp) => {
+          async (landmarks) => {
             setCurrentLandmarks(landmarks);
 
             if (activity.poseData) {
@@ -193,7 +193,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
         // Start movement sequence comparison
         const stopTracking = await mediaPipeService.startMovementTracking(
           videoRef.current,
-          (landmarks, timestamp) => {
+          (landmarks) => {
             setCurrentLandmarks(landmarks);
           },
           {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { activityService } from "../services";
-import type { Activity, ActivityType, DifficultyLevel } from "../types";
+import type { Activity, ActivityType } from "../types";
 
 interface ActivityBrowserProps {
   onActivitySelect?: (activity: Activity) => void;
