@@ -40,13 +40,25 @@ class MockMediaStream {
 // Mock MediaStreamTrack
 class MockMediaStreamTrack {
   kind: string
-  readyState: string = 'live'
+  readyState: MediaStreamTrackState = 'live'
+  label = 'mock-track'
+  enabled = true
+  muted = false
+  id = 'mock-id'
+  contentHint = ''
+  onended = null
+  onmute = null
+  onunmute = null
   
   constructor(kind: string = 'video') {
     this.kind = kind
   }
 
   stop = vi.fn()
+  clone = vi.fn()
+  applyConstraints = vi.fn()
+  getCapabilities = vi.fn()
+  getConstraints = vi.fn()
   
   getSettings() {
     return {
@@ -55,6 +67,10 @@ class MockMediaStreamTrack {
       frameRate: 30
     }
   }
+
+  addEventListener = vi.fn()
+  removeEventListener = vi.fn()
+  dispatchEvent = vi.fn()
 }
 
 describe('WebcamService', () => {
@@ -139,9 +155,9 @@ describe('WebcamService', () => {
 
     it('should start video stream successfully', async () => {
       // Mock successful video loading - need both loadedmetadata and loadeddata
-      mockVideoElement.addEventListener.mockImplementation((event, handler) => {
+      (mockVideoElement.addEventListener as any).mockImplementation((event: string, handler: EventListener) => {
         if (event === 'loadedmetadata' || event === 'loadeddata') {
-          setTimeout(() => handler(), 0)
+          setTimeout(() => handler(new Event(event)), 0)
         }
       })
 
@@ -155,9 +171,9 @@ describe('WebcamService', () => {
     })
 
     it('should request camera access if no current stream', async () => {
-      mockVideoElement.addEventListener.mockImplementation((event, handler) => {
+      (mockVideoElement.addEventListener as any).mockImplementation((event: string, handler: EventListener) => {
         if (event === 'loadedmetadata' || event === 'loadeddata') {
-          setTimeout(() => handler(), 0)
+          setTimeout(() => handler(new Event(event)), 0)
         }
       })
 
@@ -169,11 +185,12 @@ describe('WebcamService', () => {
     it('should use existing stream if available', async () => {
       // First request to establish stream
       await service.requestCameraAccess()
-      vi.clearAllMocks()
+      // reset mocks but not clear, clearAllMocks clears implementations too? no, mockClear clears usage data.
+      mockGetUserMedia.mockClear();
 
-      mockVideoElement.addEventListener.mockImplementation((event, handler) => {
+      (mockVideoElement.addEventListener as any).mockImplementation((event: string, handler: EventListener) => {
         if (event === 'loadedmetadata' || event === 'loadeddata') {
-          setTimeout(() => handler(), 0)
+          setTimeout(() => handler(new Event(event)), 0)
         }
       })
 
@@ -184,7 +201,7 @@ describe('WebcamService', () => {
     })
 
     it('should throw WebcamError on video element error', async () => {
-      mockVideoElement.addEventListener.mockImplementation((event, handler) => {
+      (mockVideoElement.addEventListener as any).mockImplementation((event: string, handler: EventListener) => {
         if (event === 'error') {
           setTimeout(() => handler(new Event('error')), 0)
         }
@@ -199,9 +216,9 @@ describe('WebcamService', () => {
       mockGetUserMedia.mockResolvedValue(mockStream)
       await service.requestCameraAccess()
 
-      mockVideoElement.addEventListener.mockImplementation((event, handler) => {
+      (mockVideoElement.addEventListener as any).mockImplementation((event: string, handler: EventListener) => {
         if (event === 'loadedmetadata' || event === 'loadeddata') {
-          setTimeout(() => handler(), 0)
+          setTimeout(() => handler(new Event(event)), 0)
         }
       })
       await service.startVideoStream(mockVideoElement)

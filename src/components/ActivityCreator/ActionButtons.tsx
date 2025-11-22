@@ -7,7 +7,7 @@ interface ActionButtonsProps {
   canStartRecording: boolean;
   isCameraActive: boolean;
   isCapturing: boolean;
-  activityType: "pose" | "movement";
+  activityType?: "pose" | "movement";
   onStartRecording: () => void;
   onToggleCamera: () => void;
   onStopRecording: () => void;
@@ -21,7 +21,6 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({
   canStartRecording,
   isCameraActive,
   isCapturing,
-  activityType,
   onStartRecording,
   onToggleCamera,
   onStopRecording,

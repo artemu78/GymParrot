@@ -373,7 +373,6 @@ export class MediaPipeService implements IMediaPipeService {
     const { frameRate = 30, onProgress, minPoseConfidence = 0.5 } = options;
 
     const sequence: TimestampedLandmarks[] = [];
-    let isRecording = true;
 
     return new Promise((resolve, reject) => {
       const stopTracking = this.startMovementTracking(
@@ -393,11 +392,9 @@ export class MediaPipeService implements IMediaPipeService {
           frameRate,
           onProgress,
           onComplete: () => {
-            isRecording = false;
             resolve(sequence);
           },
           onError: (error) => {
-            isRecording = false;
             reject(error);
           },
         }

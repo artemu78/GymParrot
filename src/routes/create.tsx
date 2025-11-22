@@ -14,7 +14,7 @@ export const Route = createFileRoute("/create")({
 
 function Create() {
   const navigate = useNavigate();
-  const { type, success } = Route.useSearch();
+  const { type } = Route.useSearch();
 
   const handleActivityCreated = (activityId: string) => {
     // Navigate to the practice page for the newly created activity

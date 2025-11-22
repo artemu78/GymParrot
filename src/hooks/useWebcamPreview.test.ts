@@ -1,6 +1,5 @@
 import { renderHook, act, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import React from 'react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import useWebcamPreview from './useWebcamPreview'
 import { webcamService } from '../services'
 

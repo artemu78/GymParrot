@@ -5,7 +5,7 @@ import type { PoseLandmark } from '../../types'
 describe('Pose Validation Utils', () => {
   describe('validatePoseData', () => {
     it('should validate correct pose data', () => {
-      const landmarks: PoseLandmark[] = Array.from({ length: 33 }, (_, i) => ({
+      const landmarks: PoseLandmark[] = Array.from({ length: 33 }, () => ({
         x: 0.5,
         y: 0.5,
         z: 0.1,

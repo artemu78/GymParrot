@@ -63,7 +63,7 @@ export class WebcamService implements IWebcamService {
           resolve()
         }
 
-        const handleError = (event: Event) => {
+        const handleError = () => {
           cleanup()
           reject(new Error('Video element failed to load'))
         }

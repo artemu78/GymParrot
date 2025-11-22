@@ -19,11 +19,13 @@ import Instructions from "./Instructions";
 import SettingsModal from "./SettingsModal";
 
 const ActivityCreator: React.FC<ActivityCreatorProps> = ({
+  initialType,
   onActivityCreated,
   onError,
+  onTypeChange,
   className = "",
 }) => {
-  const [activityType, setActivityType] = useState<ActivityType>("pose");
+  const [activityType, setActivityType] = useState<ActivityType>(initialType || "pose");
   const [activityName, setActivityName] = useState("");
   const [duration, setDuration] = useState<number>(ACTIVITY_DURATIONS.short);
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
@@ -466,9 +468,11 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
                     type="radio"
                     value="pose"
                     checked={activityType === "pose"}
-                    onChange={(e) =>
-                      setActivityType(e.target.value as ActivityType)
-                    }
+                    onChange={(e) => {
+                        const newType = e.target.value as ActivityType;
+                        setActivityType(newType);
+                        onTypeChange?.(newType);
+                    }}
                     className="mr-2"
                     disabled={recordingState !== "idle"}
                   />
@@ -479,9 +483,11 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
                     type="radio"
                     value="movement"
                     checked={activityType === "movement"}
-                    onChange={(e) =>
-                      setActivityType(e.target.value as ActivityType)
-                    }
+                    onChange={(e) => {
+                        const newType = e.target.value as ActivityType;
+                        setActivityType(newType);
+                        onTypeChange?.(newType);
+                    }}
                     className="mr-2"
                     disabled={recordingState !== "idle"}
                   />
