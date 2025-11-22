@@ -38,6 +38,14 @@ describe('MediaPipeService', () => {
         value: 4,
         writable: true
     });
+    Object.defineProperty(video, 'videoWidth', {
+        value: 640,
+        writable: true
+    });
+    Object.defineProperty(video, 'videoHeight', {
+        value: 480,
+        writable: true
+    });
     mockVideo = video;
 
     // Reset mocks
@@ -154,7 +162,7 @@ describe('MediaPipeService', () => {
       }
       
       mockPoseLandmarker.detectForVideo.mockReturnValue(mockResult)
-      mockVideo.readyState = 4 // HAVE_ENOUGH_DATA
+      Object.defineProperty(mockVideo, 'readyState', { value: 4 }); // HAVE_ENOUGH_DATA
 
       const result = await service.detectSinglePose(mockVideo)
 

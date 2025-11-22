@@ -214,7 +214,7 @@ describe('WebcamService', () => {
   describe('stopVideoStream', () => {
     it('should stop video stream and clean up resources', async () => {
       mockGetUserMedia.mockResolvedValue(mockStream)
-      await service.requestCameraAccess()
+      await service.requestCameraAccess();
 
       (mockVideoElement.addEventListener as any).mockImplementation((event: string, handler: EventListener) => {
         if (event === 'loadedmetadata' || event === 'loadeddata') {
