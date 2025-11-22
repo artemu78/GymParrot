@@ -40,7 +40,7 @@ function FullName() {
   );
 }
 
-function DemoStore() {
+export function DemoStore() {
   return (
     <div
       className="min-h-[calc(100vh-32px)] text-white p-8 flex items-center justify-center w-full h-full"

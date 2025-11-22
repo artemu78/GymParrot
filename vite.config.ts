@@ -23,6 +23,7 @@ export default defineConfig({
         "src/vitest-env.d.ts",
         "src/main.tsx",
         "src/routeTree.gen.ts",
+        "src/reportWebVitals.ts",
       ],
       all: true,
     },
