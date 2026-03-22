@@ -12,6 +12,7 @@ interface WebcamPreviewProps {
   className?: string;
   width?: number;
   height?: number;
+  forceShowVideo?: boolean; // Force show video even if not detected as ready
 }
 
 interface RecordingIndicatorProps {
@@ -48,7 +49,9 @@ interface PoseLandmarkOverlayProps {
 const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
   landmarks,
 }) => {
-  if (!landmarks || landmarks.length === 0) return null;
+  if (!landmarks || landmarks.length === 0) {
+    return null;
+  }
 
   // MediaPipe pose connections for drawing skeleton
   const connections = [
@@ -154,6 +157,7 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
       className = "",
       width = 640,
       height = 480,
+      forceShowVideo = false,
     },
     ref
   ) => {
@@ -177,7 +181,6 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
     const handleVideoReady = useCallback(() => {
       const video = videoRef.current;
       if (!video) return;
-
       setVideoReady(true);
       onVideoReady?.(video);
     }, [onVideoReady]);
@@ -196,7 +199,6 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
 
       const handleLoadedData = () => {
         if (!videoReady) {
-          // Only call if not already ready
           handleVideoReady();
         }
       };
@@ -207,6 +209,10 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
 
       video.addEventListener("loadeddata", handleLoadedData);
       video.addEventListener("error", handleError);
+
+      if (video.readyState >= 2 && video.srcObject && !videoReady) {
+        handleVideoReady();
+      }
 
       return () => {
         video.removeEventListener("loadeddata", handleLoadedData);
@@ -227,7 +233,6 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
       if (!video) return;
 
       const checkStream = () => {
-        // If srcObject is null or stream has no active tracks, reset videoReady
         const stream = video.srcObject as MediaStream | null;
         if (!stream || stream.getTracks().every(track => track.readyState === 'ended')) {
           setVideoReady(false);
@@ -263,13 +268,11 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
         />
 
         {/* Pose landmarks overlay */}
-        {videoReady && showLandmarks && landmarks.length > 0 && (
+        {(videoReady || forceShowVideo) && showLandmarks && landmarks.length > 0 ? (
           <div className="absolute inset-0" style={{ transform: "scaleX(-1)" }}>
-            <PoseLandmarkOverlay
-              landmarks={landmarks}
-            />
+            <PoseLandmarkOverlay landmarks={landmarks} />
           </div>
-        )}
+        ) : null}
 
         {/* Recording indicator */}
         <RecordingIndicator
@@ -278,7 +281,7 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
         />
 
         {/* Status overlay */}
-        {!videoReady && (
+        {!videoReady && !forceShowVideo && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-800 bg-opacity-90">
             <div className="text-center text-white px-6">
               <div className="w-16 h-16 rounded-full border-4 border-gray-600 flex items-center justify-center mx-auto mb-4">

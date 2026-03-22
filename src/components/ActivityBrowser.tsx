@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { activityService } from "../services";
 import type { Activity, ActivityType } from "../types";
 import { ActivityCard } from "./activity-browser/ActivityCard";
 import { EmptyState } from "./activity-browser/EmptyState";
 import { LoadingState } from "./activity-browser/LoadingState";
+import { PERFORMANCE_CONFIG } from "../utils/constants";
 
 interface ActivityBrowserProps {
   initialType?: ActivityType | "all";
@@ -17,6 +18,13 @@ interface ActivityBrowserProps {
 interface FilterState {
   type: ActivityType | "all";
   search: string;
+}
+
+interface PaginationState {
+  currentPage: number;
+  totalCount: number;
+  hasMore: boolean;
+  isLoadingMore: boolean;
 }
 
 const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
@@ -34,6 +42,16 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
     type: initialType || "all",
     search: "",
   });
+  const [pagination, setPagination] = useState<PaginationState>({
+    currentPage: 0,
+    totalCount: 0,
+    hasMore: true,
+    isLoadingMore: false,
+  });
+
+  // Refs for intersection observer (lazy loading)
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
 
   const clearError = useCallback(() => {
     setError(null);
@@ -48,21 +66,51 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
     [onError]
   );
 
-  const loadActivities = useCallback(async () => {
+  const loadActivities = useCallback(async (reset: boolean = true) => {
     try {
-      setLoading(true);
+      if (reset) {
+        setLoading(true);
+        setActivities([]);
+        setPagination(prev => ({ ...prev, currentPage: 0, hasMore: true }));
+      } else {
+        setPagination(prev => ({ ...prev, isLoadingMore: true }));
+      }
+      
       clearError();
 
-      const loadedActivities = await activityService.getActivities();
-      setActivities(loadedActivities);
+      const page = reset ? 0 : pagination.currentPage + 1;
+      const result = await activityService.getActivities();
+      
+      // For now, we'll simulate pagination on the client side
+      // In a real implementation, this would be handled by the backend
+      const pageSize = PERFORMANCE_CONFIG.ACTIVITIES_PAGE_SIZE;
+      const startIndex = page * pageSize;
+      const endIndex = startIndex + pageSize;
+      const paginatedActivities = result.slice(startIndex, endIndex);
+      
+      if (reset) {
+        setActivities(paginatedActivities);
+      } else {
+        setActivities(prev => [...prev, ...paginatedActivities]);
+      }
+      
+      setPagination(prev => ({
+        ...prev,
+        currentPage: page,
+        totalCount: result.length,
+        hasMore: endIndex < result.length,
+        isLoadingMore: false,
+      }));
+      
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to load activities";
       handleError(message);
     } finally {
       setLoading(false);
+      setPagination(prev => ({ ...prev, isLoadingMore: false }));
     }
-  }, [clearError, handleError]);
+  }, [pagination.currentPage, clearError, handleError]);
 
   // Filter activities based on current filters
   const applyFilters = useCallback(() => {
@@ -86,10 +134,52 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
     setFilteredActivities(filtered);
   }, [activities, filters]);
 
+  // Load more activities when scrolling near bottom
+  const loadMoreActivities = useCallback(() => {
+    if (!pagination.isLoadingMore && pagination.hasMore) {
+      loadActivities(false);
+    }
+  }, [loadActivities, pagination.isLoadingMore, pagination.hasMore]);
+
+  // Set up intersection observer for lazy loading
+  useEffect(() => {
+    // Check if IntersectionObserver is available (not in test environment)
+    if (typeof IntersectionObserver === 'undefined') {
+      return;
+    }
+
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
+
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && pagination.hasMore && !pagination.isLoadingMore) {
+          loadMoreActivities();
+        }
+      },
+      {
+        threshold: 0.1,
+        rootMargin: '100px', // Start loading 100px before reaching the element
+      }
+    );
+
+    if (loadMoreRef.current) {
+      observerRef.current.observe(loadMoreRef.current);
+    }
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [loadMoreActivities, pagination.hasMore, pagination.isLoadingMore]);
+
   // Load activities on mount
   useEffect(() => {
-    loadActivities();
-  }, [loadActivities]);
+    loadActivities(true);
+  }, []);
 
   // Apply filters when activities or filters change
   useEffect(() => {
@@ -130,10 +220,10 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
                 Choose an activity to practice
               </p>
             </div>
-            <div className="mt-4 sm:mt-0">
+            <div className="mt-4 sm:mt-0 flex items-center space-x-2">
               <button
-                onClick={loadActivities}
-                disabled={loading}
+                onClick={() => loadActivities(true)}
+                disabled={loading || pagination.isLoadingMore}
                 className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <svg
@@ -151,6 +241,13 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
                 </svg>
                 Refresh
               </button>
+              
+              {/* Performance indicator */}
+              {pagination.totalCount > 0 && (
+                <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                  {activities.length} / {pagination.totalCount}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -269,14 +366,25 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
 
           {/* Results Count */}
           {!loading && !error && (
-            <div className="mb-4 text-sm text-gray-600">
-              {hasActiveFilters ? (
-                <>
-                  Showing {filteredActivities.length} of {activities.length}{" "}
-                  activities
-                </>
-              ) : (
-                <>{activities.length} activities available</>
+            <div className="mb-4 flex justify-between items-center text-sm text-gray-600">
+              <div>
+                {hasActiveFilters ? (
+                  <>
+                    Showing {filteredActivities.length} of {activities.length}{" "}
+                    activities
+                  </>
+                ) : (
+                  <>
+                    {activities.length} activities loaded
+                    {pagination.hasMore && ` (${pagination.totalCount} total)`}
+                  </>
+                )}
+              </div>
+              
+              {pagination.hasMore && (
+                <div className="text-xs text-blue-600">
+                  Scroll down to load more
+                </div>
               )}
             </div>
           )}
@@ -299,6 +407,34 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
                 />
               ))}
           </div>
+
+          {/* Load More Trigger (for intersection observer) */}
+          {pagination.hasMore && !hasActiveFilters && (
+            <div ref={loadMoreRef} className="mt-8 flex justify-center">
+              {pagination.isLoadingMore ? (
+                <div className="flex items-center space-x-2 text-gray-500">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                  <span>Loading more activities...</span>
+                </div>
+              ) : (
+                <div className="text-gray-400 text-sm">
+                  Scroll down to load more
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Manual Load More Button (fallback) */}
+          {pagination.hasMore && !hasActiveFilters && !pagination.isLoadingMore && (
+            <div className="mt-6 flex justify-center">
+              <button
+                onClick={loadMoreActivities}
+                className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              >
+                Load More Activities
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

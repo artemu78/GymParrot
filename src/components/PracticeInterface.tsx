@@ -13,6 +13,112 @@ import type {
   ComparisonResult,
 } from "../types";
 
+/**
+ * Component to render pose landmarks as an SVG overlay
+ * @param landmarks - Array of pose landmarks to render
+ */
+interface PoseLandmarkOverlayProps {
+  landmarks: PoseLandmark[];
+}
+
+const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
+  landmarks,
+}) => {
+  if (!landmarks || landmarks.length === 0) {
+    return null;
+  }
+
+  // MediaPipe pose connections for drawing skeleton
+  const connections = [
+    // Face
+    [0, 1],
+    [1, 2],
+    [2, 3],
+    [3, 7],
+    [0, 4],
+    [4, 5],
+    [5, 6],
+    [6, 8],
+    // Body
+    [9, 10],
+    [11, 12],
+    [11, 13],
+    [13, 15],
+    [15, 17],
+    [15, 19],
+    [15, 21],
+    [12, 14],
+    [14, 16],
+    [16, 18],
+    [16, 20],
+    [16, 22],
+    // Legs
+    [11, 23],
+    [12, 24],
+    [23, 24],
+    [23, 25],
+    [25, 27],
+    [27, 29],
+    [29, 31],
+    [24, 26],
+    [26, 28],
+    [28, 30],
+    [30, 32],
+  ];
+
+  return (
+    <svg
+      className="absolute inset-0 pointer-events-none w-full h-full"
+      viewBox="0 0 1 1"
+      preserveAspectRatio="xMidYMid slice"
+    >
+      {/* Draw connections */}
+      {connections.map(([startIdx, endIdx], index) => {
+        const startLandmark = landmarks[startIdx];
+        const endLandmark = landmarks[endIdx];
+
+        if (
+          !startLandmark ||
+          !endLandmark ||
+          (startLandmark.visibility || 1) < 0.5 ||
+          (endLandmark.visibility || 1) < 0.5
+        ) {
+          return null;
+        }
+
+        return (
+          <line
+            key={index}
+            x1={startLandmark.x}
+            y1={startLandmark.y}
+            x2={endLandmark.x}
+            y2={endLandmark.y}
+            stroke="#00ff00"
+            strokeWidth="0.003"
+            opacity="0.8"
+          />
+        );
+      })}
+
+      {/* Draw landmarks */}
+      {landmarks.map((landmark, index) => {
+        if ((landmark.visibility || 1) < 0.5) return null;
+
+        return (
+          <circle
+            key={index}
+            cx={landmark.x}
+            cy={landmark.y}
+            r="0.005"
+            fill="#ff0000"
+            opacity="0.9"
+          />
+        );
+      })}
+    </svg>
+  );
+};
+
 interface PracticeInterfaceProps {
   activityId: string;
   initialDifficulty?: DifficultyLevel;
@@ -131,6 +237,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   );
 
   const stopPractice = useCallback(() => {
+    console.log("🛑 stopPractice called");
     if (stopTrackingRef.current) {
       stopTrackingRef.current();
       stopTrackingRef.current = null;
@@ -158,7 +265,13 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
   const handleVideoReady = useCallback(
     async (video: HTMLVideoElement) => {
-      // We only auto-start stream if we are testing camera or counting down/practicing
+      // Don't auto-initialize if we're in the middle of practice
+      // The startPractice function handles initialization
+      if (practiceState === "countdown" || practiceState === "practicing") {
+        return;
+      }
+
+      // We only auto-start stream if we are testing camera
       if (!isCameraTesting && practiceState === "ready") return;
 
       if (isInitializedRef.current) return;
@@ -202,17 +315,20 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       // 2. Capture Landmarks & Stop Tracking
       // Use ref to get latest landmarks
       const capturedLandmarks = [...currentLandmarksRef.current];
+      console.log("📸 Captured landmarks for comparison:", capturedLandmarks?.length || 0);
 
       // Stop tracking and camera
       stopPractice();
 
       // 3. Compare
       if (activity.type === "pose" && activity.poseData) {
+        console.log("🔍 Comparing poses - target landmarks:", activity.poseData?.length || 0, "captured landmarks:", capturedLandmarks?.length || 0);
         const result = await comparisonService.comparePoses(
           activity.poseData,
           capturedLandmarks,
           difficulty
         );
+        console.log("📊 Comparison result:", result);
 
         setComparisonResult(result);
 
@@ -235,14 +351,14 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
         });
 
         setPracticeState("completed");
-        onComplete?.(result.score);
+        // Don't call onComplete here - let user see results and choose to finish
       }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to process result";
       handleError(message);
     }
-  }, [activity, difficulty, onComplete, handleError, stopPractice]);
+  }, [activity, difficulty, handleError, stopPractice]);
 
   // Countdown logic
   useEffect(() => {
@@ -267,32 +383,33 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       setCapturedImage(null);
       setComparisonResult(null);
 
-      // Initialize camera first to ensure user can see themselves
       await mediaPipeService.initializePoseLandmarker();
       await webcamService.startVideoStream(videoRef.current);
       
-      // Wait a bit for video dimensions
-      await new Promise(resolve => setTimeout(resolve, 200));
-
       const video = videoRef.current;
-      if (!video || video.videoWidth === 0) {
-         throw new Error("Camera not ready. Please try again.");
+      if (!video) throw new Error("Video element not found");
+      
+      if (video.paused) await video.play();
+      
+      // Wait for video dimensions
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      if (video.videoWidth === 0) {
+        throw new Error("Camera not ready. Please try again.");
       }
 
       if (activity.type === "pose") {
-        // For pose, we start tracking for visualization, then countdown
         setPracticeState("countdown");
         setCountdown(3);
         setIsTracking(true);
 
-        // Start tracking for visual feedback during countdown
         const stopTracking = await mediaPipeService.startMovementTracking(
           videoRef.current,
           (landmarks) => {
             setCurrentLandmarks(landmarks);
           },
           {
-            duration: Infinity, // Run until we manually stop
+            duration: Infinity,
             onError: (error) => {
               console.error("Tracking error", error);
             }
@@ -383,7 +500,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     isInitializedRef.current = false;
   }, []);
 
-  const renderResultOverlay = () => {
+  const renderResultSection = () => {
     if (!comparisonResult) return null;
 
     const percentage = Math.round(comparisonResult.score * 100);
@@ -393,43 +510,41 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     const borderClass = isSuccess ? "border-green-200" : "border-yellow-200";
 
     return (
-      <div className={`absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 z-20`}>
-        <div className={`bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4 ${borderClass} border-2`}>
-          <div className="text-center mb-4">
-            <h3 className={`text-2xl font-bold ${colorClass} mb-2`}>
-              {isSuccess ? "Excellent!" : "Good Try!"}
-            </h3>
-            <div className={`text-4xl font-bold ${colorClass}`}>
-              {percentage}%
-            </div>
-            <p className="text-gray-600 mt-2">Accuracy Score</p>
+      <div className={`mt-8 bg-white p-6 rounded-lg shadow-xl ${borderClass} border-2`}>
+        <div className="text-center mb-4">
+          <h3 className={`text-2xl font-bold ${colorClass} mb-2`}>
+            {isSuccess ? "Excellent!" : "Good Try!"}
+          </h3>
+          <div className={`text-4xl font-bold ${colorClass}`}>
+            {percentage}%
           </div>
+          <p className="text-gray-600 mt-2">Accuracy Score</p>
+        </div>
 
-          {comparisonResult.feedback && comparisonResult.feedback.length > 0 && (
-            <div className={`mb-4 p-3 rounded ${bgClass}`}>
-               <p className="font-medium mb-1 text-gray-800">Feedback:</p>
-               <ul className="list-disc list-inside text-sm text-gray-700">
-                 {comparisonResult.feedback.map((item, idx) => (
-                   <li key={idx}>{item}</li>
-                 ))}
-               </ul>
-            </div>
-          )}
-
-          <div className="space-y-3">
-             <button
-               onClick={resetPractice}
-               className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-             >
-               Try Again
-             </button>
-             <button
-                onClick={() => onComplete?.(comparisonResult.score)}
-                className="w-full px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition-colors"
-             >
-               Finish
-             </button>
+        {comparisonResult.feedback && comparisonResult.feedback.length > 0 && (
+          <div className={`mb-4 p-3 rounded ${bgClass}`}>
+             <p className="font-medium mb-1 text-gray-800">Feedback:</p>
+             <ul className="list-disc list-inside text-sm text-gray-700">
+               {comparisonResult.feedback.map((item, idx) => (
+                 <li key={idx}>{item}</li>
+               ))}
+             </ul>
           </div>
+        )}
+
+        <div className="flex gap-3 justify-center">
+           <button
+             onClick={resetPractice}
+             className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+           >
+             Try Again
+           </button>
+           <button
+              onClick={() => onComplete?.(comparisonResult.score)}
+              className="px-6 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition-colors"
+           >
+             Finish
+           </button>
         </div>
       </div>
     );
@@ -520,11 +635,16 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                 <h3 className="text-lg font-medium text-gray-900 mb-3">Target Pose</h3>
                 <div className="relative aspect-video bg-gray-100 rounded-lg overflow-hidden border border-gray-200 shadow-inner">
                    {activity.imageData ? (
-                      <img
-                        src={activity.imageData}
-                        alt="Target Pose"
-                        className="w-full h-full object-contain"
-                      />
+                      <>
+                        <img
+                          src={activity.imageData}
+                          alt="Target Pose"
+                          className="w-full h-full object-contain"
+                        />
+                        {activity.poseData && activity.poseData.length > 0 ? (
+                          <PoseLandmarkOverlay landmarks={activity.poseData} />
+                        ) : null}
+                      </>
                    ) : (
                       <div className="flex items-center justify-center h-full text-gray-400">
                         No image available
@@ -542,10 +662,11 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                    <div className={`${capturedImage ? 'hidden' : 'block'} w-full h-full`}>
                       <WebcamPreview
                         ref={videoRef}
-                        isActive={true} // We control actual stream via webcamService, this prop mainly affects internal UI
+                        isActive={true}
                         showLandmarks={true}
                         landmarks={currentLandmarks}
                         isRecording={isTracking}
+                        forceShowVideo={practiceState === "countdown" || practiceState === "practicing"}
                         onVideoReady={handleVideoReady}
                         onError={handleError}
                         className="w-full h-full"
@@ -561,25 +682,30 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                            className="w-full h-full object-contain"
                            // No mirror here because image is already mirrored during capture
                          />
-                         {/* Overlay Skeleton on captured image could go here */}
+                         {/* Render captured pose landmarks - mirrored to match the image */}
+                         {currentLandmarks && currentLandmarks.length > 0 && (
+                           <div className="absolute inset-0" style={{ transform: "scaleX(-1)" }}>
+                             <PoseLandmarkOverlay landmarks={currentLandmarks} />
+                           </div>
+                         )}
                       </div>
                    )}
 
                    {/* Countdown Overlay */}
                    {practiceState === "countdown" && countdown !== null && (
-                      <div className="absolute inset-0 z-20 flex items-center justify-center bg-black bg-opacity-40 backdrop-blur-sm">
+                      <div className="absolute inset-0 z-20 flex items-center justify-center bg-opacity-40">
                          <div className="text-9xl font-bold text-white animate-pulse">
                            {countdown === 0 ? "POSE!" : countdown}
                          </div>
                       </div>
                    )}
 
-                   {/* Result Overlay */}
-                   {practiceState === "completed" && renderResultOverlay()}
-
                 </div>
              </div>
           </div>
+
+          {/* Result Section - Shown below both windows */}
+          {practiceState === "completed" && renderResultSection()}
 
           {/* Controls */}
           <div className="mt-8 flex justify-center gap-4">

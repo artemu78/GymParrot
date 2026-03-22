@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "mediapipe-pose-detection": {
+      "source": "feniix/kinemotion",
+      "sourceType": "github",
+      "computedHash": "0e4ce33a34ca527c6b23918e50383d134430f52e770eb9727a3f1c8e3cccb9e8"
+    }
+  }
+}

@@ -1,5 +1,6 @@
 import { createRootRoute, Link, Outlet } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/router-devtools";
+import { Search } from "lucide-react";
 
 export const Route = createRootRoute({
   component: () => (
@@ -19,11 +20,12 @@ export const Route = createRootRoute({
               <div className="flex items-center space-x-4">
                 <Link
                   to="/activities"
-                  className="px-3 py-2 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700 [&.active]:text-blue-600 [&.active]:bg-blue-50"
+                  className="px-3 py-2 rounded-md text-sm font-medium text-gray-500 hover:text-gray-700 [&.active]:text-blue-600 [&.active]:bg-blue-50 inline-flex items-center gap-2"
                   activeProps={{
                     className: "text-blue-600 bg-blue-50",
                   }}
                 >
+                  <Search className="size-4 shrink-0" aria-hidden />
                   Browse Activities
                 </Link>
                 <Link

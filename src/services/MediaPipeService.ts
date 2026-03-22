@@ -2,7 +2,13 @@ import { PoseLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import type { MediaPipeService as IMediaPipeService } from "./index";
 import type { PoseLandmark, TimestampedLandmarks } from "../types";
 import { MediaPipeError } from "../types";
-import { MEDIAPIPE_CONFIG, ERROR_MESSAGES } from "../utils/constants";
+import { MEDIAPIPE_CONFIG, ERROR_MESSAGES, PERFORMANCE_CONFIG } from "../utils/constants";
+import { 
+  FrameRateController, 
+  PoseDataCompressor,
+  performanceMonitor,
+  memoryManager
+} from "../utils/performance";
 
 export declare class PoseLandmarkerResult {
   /**
@@ -47,37 +53,72 @@ export declare class PoseLandmarkerResult {
 export class MediaPipeService implements IMediaPipeService {
   private poseLandmarker: PoseLandmarker | null = null;
   private isInitialized = false;
+  private frameRateController: FrameRateController;
+  private modelCacheTime: number = 0;
+  private initializationPromise: Promise<PoseLandmarker> | null = null;
+
+  constructor() {
+    this.frameRateController = new FrameRateController();
+  }
 
   async initializePoseLandmarker(): Promise<PoseLandmarker> {
     try {
-      if (this.poseLandmarker && this.isInitialized) {
-        return this.poseLandmarker;
+      // Check if model is cached and still valid
+      if (this.poseLandmarker && this.isInitialized && PERFORMANCE_CONFIG.ENABLE_MODEL_CACHING) {
+        const cacheAge = performance.now() - this.modelCacheTime;
+        if (cacheAge < PERFORMANCE_CONFIG.MODEL_CACHE_DURATION) {
+          console.log('🚀 Using cached MediaPipe model');
+          return this.poseLandmarker;
+        }
       }
 
-      // Initialize the MediaPipe vision tasks
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm"
-      );
+      // Return existing initialization promise if in progress
+      if (this.initializationPromise) {
+        console.log('⏳ Waiting for existing MediaPipe initialization');
+        return this.initializationPromise;
+      }
 
-      // Create PoseLandmarker with configuration
-      this.poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: MEDIAPIPE_CONFIG.baseOptions.modelAssetPath,
-          delegate: MEDIAPIPE_CONFIG.baseOptions.delegate as any,
-        },
-        runningMode: MEDIAPIPE_CONFIG.runningMode as any,
-        numPoses: MEDIAPIPE_CONFIG.numPoses,
-      });
+      console.log('🔄 Initializing MediaPipe PoseLandmarker...');
+      const startTime = performance.now();
 
-      this.isInitialized = true;
-      return this.poseLandmarker;
+      this.initializationPromise = this.performInitialization();
+      const result = await this.initializationPromise;
+      
+      const initTime = performance.now() - startTime;
+      console.log(`✅ MediaPipe initialized in ${Math.round(initTime)}ms`);
+      
+      this.initializationPromise = null;
+      return result;
+
     } catch (error) {
+      this.initializationPromise = null;
       const message = error instanceof Error ? error.message : "Unknown error";
       throw new MediaPipeError(
         `${ERROR_MESSAGES.MEDIAPIPE_INIT_FAILED}: ${message}`,
         "INIT_FAILED"
       );
     }
+  }
+
+  private async performInitialization(): Promise<PoseLandmarker> {
+    // Initialize the MediaPipe vision tasks
+    const vision = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm"
+    );
+
+    // Create PoseLandmarker with optimized configuration
+    this.poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: MEDIAPIPE_CONFIG.baseOptions.modelAssetPath,
+        delegate: MEDIAPIPE_CONFIG.baseOptions.delegate as any,
+      },
+      runningMode: MEDIAPIPE_CONFIG.runningMode as any,
+      numPoses: MEDIAPIPE_CONFIG.numPoses,
+    });
+
+    this.isInitialized = true;
+    this.modelCacheTime = performance.now();
+    return this.poseLandmarker;
   }
 
   async detectPoseFromVideo(
@@ -88,6 +129,7 @@ export class MediaPipeService implements IMediaPipeService {
     }
 
     try {
+      const frameStart = performance.now();
       const timestamp = performance.now();
       const result = this.poseLandmarker!.detectForVideo(video, timestamp);
 
@@ -97,6 +139,10 @@ export class MediaPipeService implements IMediaPipeService {
           "DETECTION_FAILED"
         );
       }
+
+      // Record performance metrics
+      const processingTime = performance.now() - frameStart;
+      performanceMonitor.recordFrame(processingTime);
 
       return result;
     } catch (error) {
@@ -161,7 +207,7 @@ export class MediaPipeService implements IMediaPipeService {
       // Get the first pose landmarks (we configured for numPoses: 1)
       const landmarks = result.landmarks[0];
 
-      return landmarks.map((landmark) =>
+      const extractedLandmarks = landmarks.map((landmark) =>
         this.normalizeLandmark({
           x: landmark.x,
           y: landmark.y,
@@ -169,6 +215,14 @@ export class MediaPipeService implements IMediaPipeService {
           visibility: landmark.visibility,
         })
       );
+
+      // Apply compression if enabled
+      const compressedLandmarks = PoseDataCompressor.compressLandmarks(extractedLandmarks);
+      
+      // Add to memory manager for tracking
+      memoryManager.addPoseData(compressedLandmarks);
+
+      return compressedLandmarks;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       throw new MediaPipeError(
@@ -253,13 +307,12 @@ export class MediaPipeService implements IMediaPipeService {
     );
   }
 
-  // Start continuous movement tracking
+  // Start continuous movement tracking with performance optimization
   async startMovementTracking(
     video: HTMLVideoElement,
     onPoseDetected: (landmarks: PoseLandmark[], timestamp: number) => void,
     options: {
       duration?: number;
-      frameRate?: number;
       onProgress?: (elapsed: number, total: number) => void;
       onComplete?: () => void;
       onError?: (error: MediaPipeError) => void;
@@ -270,6 +323,14 @@ export class MediaPipeService implements IMediaPipeService {
     }
 
     // Validate video element has valid dimensions
+    console.log("🎥 Video validation before tracking:", {
+      videoWidth: video.videoWidth,
+      videoHeight: video.videoHeight,
+      readyState: video.readyState,
+      paused: video.paused,
+      srcObject: !!video.srcObject
+    });
+    
     if (video.videoWidth === 0 || video.videoHeight === 0) {
       throw new MediaPipeError(
         "Video element has invalid dimensions. Ensure video stream is loaded before starting tracking.",
@@ -287,40 +348,31 @@ export class MediaPipeService implements IMediaPipeService {
 
     const {
       duration = 30000, // 30 seconds default
-      frameRate = 30,
       onProgress,
       onComplete,
       onError,
     } = options;
 
+    // Limit maximum tracking duration for memory management
+    const maxDuration = Math.min(duration, PERFORMANCE_CONFIG.MAX_TRACKING_DURATION);
+
     let isTracking = true;
     let animationFrameId: number;
     const startTime = performance.now();
-    const frameInterval = 1000 / frameRate;
-
-    let lastFrameTime = 0;
 
     const trackFrame = (currentTime: number) => {
       if (!isTracking) return;
 
-      // Control frame rate
-      if (currentTime - lastFrameTime < frameInterval) {
-        animationFrameId = requestAnimationFrame(trackFrame);
-        return;
-      }
-
-      lastFrameTime = currentTime;
-      const elapsed = currentTime - startTime;
-
       try {
         // Check if duration exceeded
-        if (elapsed >= duration) {
+        const elapsed = currentTime - startTime;
+        if (elapsed >= maxDuration) {
           isTracking = false;
           onComplete?.();
           return;
         }
 
-        // Detect pose
+        // Detect pose on every animation frame — no artificial throttling
         const result = this.poseLandmarker!.detectForVideo(video, currentTime);
 
         if (result && result.landmarks && result.landmarks.length > 0) {
@@ -329,7 +381,7 @@ export class MediaPipeService implements IMediaPipeService {
         }
 
         // Report progress
-        onProgress?.(elapsed, duration);
+        onProgress?.(elapsed, maxDuration);
 
         // Continue tracking
         if (isTracking) {
@@ -370,7 +422,7 @@ export class MediaPipeService implements IMediaPipeService {
       minPoseConfidence?: number;
     } = {}
   ): Promise<TimestampedLandmarks[]> {
-    const { frameRate = 30, onProgress, minPoseConfidence = 0.5 } = options;
+    const { onProgress, minPoseConfidence = 0.5 } = options;
 
     const sequence: TimestampedLandmarks[] = [];
 
@@ -389,7 +441,6 @@ export class MediaPipeService implements IMediaPipeService {
         },
         {
           duration,
-          frameRate,
           onProgress,
           onComplete: () => {
             resolve(sequence);
@@ -498,7 +549,37 @@ export class MediaPipeService implements IMediaPipeService {
       this.poseLandmarker.close();
       this.poseLandmarker = null;
       this.isInitialized = false;
+      this.modelCacheTime = 0;
     }
+    
+    // Stop performance monitoring
+    performanceMonitor.stop();
+    
+    // Force memory cleanup
+    memoryManager.forceCleanup();
+    
+    console.log('🧹 MediaPipe service disposed and cleaned up');
+  }
+
+  // Get performance metrics
+  getPerformanceMetrics() {
+    return {
+      monitor: performanceMonitor.getMetrics(),
+      memory: memoryManager.getMemoryStats(),
+      frameRate: this.frameRateController.getCurrentFPS()
+    };
+  }
+
+  // Optimize for low-end devices
+  enableLowPerformanceMode(): void {
+    this.frameRateController = new FrameRateController(PERFORMANCE_CONFIG.MIN_FPS);
+    console.log('🐌 Low performance mode enabled');
+  }
+
+  // Optimize for high-end devices
+  enableHighPerformanceMode(): void {
+    this.frameRateController = new FrameRateController(PERFORMANCE_CONFIG.MAX_FPS);
+    console.log('🚀 High performance mode enabled');
   }
 }
 
