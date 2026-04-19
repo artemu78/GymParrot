@@ -375,7 +375,7 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
                   </>
                 ) : (
                   <>
-                    {activities.length} activities loaded
+                    {activities.length} activities available
                     {pagination.hasMore && ` (${pagination.totalCount} total)`}
                   </>
                 )}
