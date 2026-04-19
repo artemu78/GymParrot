@@ -3,15 +3,15 @@
  * These tests measure actual performance improvements
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { PoseDataCompressor } from '../performance';
 import { PERFORMANCE_CONFIG } from '../constants';
 
 // Mock pose landmarks for testing
 const generateMockLandmarks = (count: number = 33) => {
-  return Array.from({ length: count }, (_, i) => ({
+  return Array.from({ length: count }, () => ({
     x: Math.random(),
-    y: Math.random(), 
+    y: Math.random(),
     z: Math.random(),
     visibility: Math.random()
   }));
@@ -76,18 +76,19 @@ describe('Performance Benchmarks', () => {
 
   describe('Memory Usage Optimization', () => {
     it('should handle large pose sequences without memory issues', () => {
-      const startMemory = performance.memory ? (performance as any).memory.usedJSHeapSize : 0;
-      
+      const perfWithMemory = performance as any;
+      const startMemory = perfWithMemory.memory ? perfWithMemory.memory.usedJSHeapSize : 0;
+
       // Generate large dataset
       const largeSequence = generateMockTimestampedLandmarks(1000); // 1000 frames
-      
+
       // Process with compression
       const processed = largeSequence.map(frame => ({
         timestamp: frame.timestamp,
         landmarks: PoseDataCompressor.compressLandmarks(frame.landmarks)
       }));
-      
-      const endMemory = performance.memory ? (performance as any).memory.usedJSHeapSize : 0;
+
+      const endMemory = perfWithMemory.memory ? perfWithMemory.memory.usedJSHeapSize : 0;
       const memoryUsed = endMemory - startMemory;
       
       console.log(`Memory used for 1000 frames: ${(memoryUsed / 1024 / 1024).toFixed(2)} MB`);

@@ -268,8 +268,10 @@ export class LocalStorageService implements IStorageService {
     // Limit cache size
     if (this.activityCache.size > 50) {
       const oldestId = this.activityCache.keys().next().value;
-      this.activityCache.delete(oldestId);
-      this.cacheTimestamps.delete(oldestId);
+      if (oldestId !== undefined) {
+        this.activityCache.delete(oldestId);
+        this.cacheTimestamps.delete(oldestId);
+      }
     }
   }
 
