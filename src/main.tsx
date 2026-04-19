@@ -5,6 +5,9 @@ import { RouterProvider, createRouter } from "@tanstack/react-router";
 import "./styles.css";
 import reportWebVitals from "./reportWebVitals.ts";
 
+declare const __APP_VERSION__: string;
+console.log(`GymParrot version: ${__APP_VERSION__}`);
+
 import { routeTree } from "./routeTree.gen";
 
 const router = createRouter({ routeTree });
