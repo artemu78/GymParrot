@@ -1,7 +1,15 @@
 {
   "name": "GymParrot",
-  "private": true,
+  "private": false,
   "type": "module",
+  "version": "0.0.1",
+  "author": "GymParrot",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:artemu78/GymParrot.git"
+  },
+  "homepage": "https://gymparrot.netlify.app/",
   "scripts": {
     "dev": "vite --port 3000",
     "start": "vite --port 3000",
