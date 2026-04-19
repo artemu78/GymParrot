@@ -282,7 +282,12 @@ describe("PracticeInterface", () => {
           expect(comparisonService.comparePoses).toHaveBeenCalled();
           expect(screen.getByText("Excellent!")).toBeInTheDocument();
 
-          fireEvent.click(screen.getByText("Finish"));
+          // Target pose image should still be visible alongside the result
+          expect(screen.getByText("Target Pose")).toBeInTheDocument();
+          expect(screen.getByText("Your Pose")).toBeInTheDocument();
+          expect(screen.getByAltText("Your Attempt")).toBeInTheDocument();
+
+          fireEvent.click(screen.getByText("Approve and save"));
           expect(onComplete).toHaveBeenCalledWith(0.85);
       });
 
@@ -343,10 +348,82 @@ describe("PracticeInterface", () => {
 
          expect(screen.getByText("Excellent!")).toBeInTheDocument();
 
-         fireEvent.click(screen.getByText("Try Again"));
+         fireEvent.click(screen.getByText("Retry"));
 
          expect(screen.queryByText("Excellent!")).not.toBeInTheDocument();
          expect(screen.getByText("Start Practice")).toBeInTheDocument();
+      });
+
+      it("should keep practice screen visible with target pose and buttons after countdown", async () => {
+         vi.useFakeTimers();
+         const onComplete = vi.fn();
+         const { container } = render(
+            <PracticeInterface activityId="pose-1" onComplete={onComplete} />
+         );
+         await act(async () => { await vi.runAllTimersAsync(); });
+         expect(screen.getByText("Start Practice")).toBeInTheDocument();
+
+         const videoElement = container.querySelector('video');
+         if (videoElement) {
+            Object.defineProperty(videoElement, "videoWidth", { value: 640, writable: true });
+            Object.defineProperty(videoElement, "videoHeight", { value: 480, writable: true });
+         }
+
+         await act(async () => {
+            fireEvent.click(screen.getByText("Start Practice"));
+            await vi.advanceTimersByTimeAsync(300);
+            await Promise.resolve();
+         });
+
+         // Countdown to completion
+         for (let i = 0; i < 5; i++) {
+            await act(async () => {
+               await vi.advanceTimersByTimeAsync(1000);
+               await Promise.resolve();
+            });
+         }
+
+         // After countdown, practice screen must remain (target + captured image)
+         expect(screen.getByText("Target Pose")).toBeInTheDocument();
+         expect(screen.getByText("Your Pose")).toBeInTheDocument();
+         expect(screen.getByAltText("Target Pose")).toBeInTheDocument();
+         expect(screen.getByAltText("Your Attempt")).toBeInTheDocument();
+
+         // Both buttons must be present with the new labels
+         expect(screen.getByText("Approve and save")).toBeInTheDocument();
+         expect(screen.getByText("Retry")).toBeInTheDocument();
+
+         // onComplete must NOT be called automatically
+         expect(onComplete).not.toHaveBeenCalled();
+      });
+
+      it("should show camera preview (webcam) during the 3-2-1 countdown", async () => {
+         vi.useFakeTimers();
+         const { container } = render(<PracticeInterface activityId="pose-1" />);
+         await act(async () => { await vi.runAllTimersAsync(); });
+         expect(screen.getByText("Start Practice")).toBeInTheDocument();
+
+         const videoElement = container.querySelector('video');
+         if (videoElement) {
+            Object.defineProperty(videoElement, "videoWidth", { value: 640, writable: true });
+            Object.defineProperty(videoElement, "videoHeight", { value: 480, writable: true });
+         }
+
+         await act(async () => {
+            fireEvent.click(screen.getByText("Start Practice"));
+            await vi.advanceTimersByTimeAsync(300);
+            await Promise.resolve();
+         });
+
+         // We are now in countdown; the webcam preview must still render
+         expect(screen.getByText("3")).toBeInTheDocument();
+         expect(screen.getByTestId("webcam-preview")).toBeInTheDocument();
+
+         // Captured image must not be shown yet
+         expect(screen.queryByAltText("Your Attempt")).not.toBeInTheDocument();
+
+         // Movement tracking (landmark/gesture lines) must be active
+         expect(mediaPipeService.startMovementTracking).toHaveBeenCalled();
       });
 
       it("should handle errors during practice start", async () => {

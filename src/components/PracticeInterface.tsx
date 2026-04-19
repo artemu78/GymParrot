@@ -534,16 +534,16 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
         <div className="flex gap-3 justify-center">
            <button
+              onClick={() => onComplete?.(comparisonResult.score)}
+              className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+           >
+             Approve and save
+           </button>
+           <button
              onClick={resetPractice}
              className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
            >
-             Try Again
-           </button>
-           <button
-              onClick={() => onComplete?.(comparisonResult.score)}
-              className="px-6 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition-colors"
-           >
-             Finish
+             Retry
            </button>
         </div>
       </div>
@@ -691,10 +691,13 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                       </div>
                    )}
 
-                   {/* Countdown Overlay */}
+                   {/* Countdown Overlay - translucent so camera shows through */}
                    {practiceState === "countdown" && countdown !== null && (
-                      <div className="absolute inset-0 z-20 flex items-center justify-center bg-opacity-40">
-                         <div className="text-9xl font-bold text-white animate-pulse">
+                      <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/30 pointer-events-none">
+                         <div
+                           className="text-9xl font-bold text-white animate-pulse drop-shadow-lg"
+                           style={{ textShadow: "0 2px 12px rgba(0,0,0,0.8)" }}
+                         >
                            {countdown === 0 ? "POSE!" : countdown}
                          </div>
                       </div>
