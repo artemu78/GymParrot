@@ -150,6 +150,17 @@ describe("PracticeInterface", () => {
         expect(screen.getByText("Match the pose")).toBeInTheDocument();
       });
     });
+
+    it("should horizontally mirror the target pose image to match the selfie-view preview the trainer saw when recording", async () => {
+      vi.mocked(activityService.getActivityById).mockResolvedValue(
+        mockPoseActivity
+      );
+
+      render(<PracticeInterface activityId="pose-1" />);
+
+      const targetImage = await screen.findByAltText("Target Pose");
+      expect(targetImage.style.transform).toContain("scaleX(-1)");
+    });
   });
 
   describe("Difficulty Selector", () => {

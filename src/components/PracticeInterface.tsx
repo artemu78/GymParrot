@@ -636,13 +636,17 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                 <div className="relative aspect-video bg-gray-100 rounded-lg overflow-hidden border border-gray-200 shadow-inner">
                    {activity.imageData ? (
                       <>
+                        {/* Mirror to match the selfie-view preview the trainer saw when recording */}
                         <img
                           src={activity.imageData}
                           alt="Target Pose"
                           className="w-full h-full object-contain"
+                          style={{ transform: "scaleX(-1)" }}
                         />
                         {activity.poseData && activity.poseData.length > 0 ? (
-                          <PoseLandmarkOverlay landmarks={activity.poseData} />
+                          <div className="absolute inset-0" style={{ transform: "scaleX(-1)" }}>
+                            <PoseLandmarkOverlay landmarks={activity.poseData} />
+                          </div>
                         ) : null}
                       </>
                    ) : (

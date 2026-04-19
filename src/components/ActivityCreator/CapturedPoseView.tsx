@@ -42,14 +42,16 @@ const CapturedPoseView: React.FC<CapturedPoseViewProps> = ({
 
       {/* Captured Image */}
       <div className="relative bg-gray-900 rounded-lg overflow-hidden shadow-xl border-4 border-blue-500" style={{ width: 640, height: 480 }}>
+        {/* Mirror the image horizontally to match the selfie-view preview the user saw */}
         <img
           src={capturedImage}
           alt="Captured pose"
           className="w-full h-full object-cover"
+          style={{ transform: "scaleX(-1)" }}
         />
         {/* Overlay landmarks */}
         {capturedLandmarks.length > 0 && (
-          <div className="absolute inset-0">
+          <div className="absolute inset-0" style={{ transform: "scaleX(-1)" }}>
             <svg
               className="absolute inset-0 pointer-events-none"
               width={640}
