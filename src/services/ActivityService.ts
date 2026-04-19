@@ -163,18 +163,41 @@ export class ActivityService implements IActivityService {
       }
 
       // Return deep copy to prevent external modification
-      const landmarks = Array.isArray(activity.landmarks) 
-        ? activity.landmarks.map(item => 
-            'timestamp' in item 
+      const landmarks = Array.isArray(activity.landmarks)
+        ? activity.landmarks.map(item =>
+            'timestamp' in item
               ? { timestamp: item.timestamp, landmarks: [...item.landmarks] } as TimestampedLandmarks
               : { ...item } as PoseLandmark
           )
         : [];
 
-      return {
+      // Ensure type-specific accessors (poseData / movementData) are populated
+      // when loading from storage, since only `landmarks` is persisted.
+      const hydrated: Activity = {
         ...activity,
-        landmarks: landmarks as typeof activity.landmarks
+        landmarks: landmarks as typeof activity.landmarks,
+      };
+
+      if (activity.type === 'movement') {
+        const hasValidSequence =
+          Array.isArray(hydrated.movementData) && hydrated.movementData.length > 0;
+        if (!hasValidSequence) {
+          hydrated.movementData = (landmarks as TimestampedLandmarks[]).map(
+            (frame) => ({
+              timestamp: frame.timestamp,
+              landmarks: [...frame.landmarks],
+            })
+          );
+        }
+      } else if (activity.type === 'pose') {
+        const hasValidPose =
+          Array.isArray(hydrated.poseData) && hydrated.poseData.length > 0;
+        if (!hasValidPose) {
+          hydrated.poseData = (landmarks as PoseLandmark[]).map((lm) => ({ ...lm }));
+        }
       }
+
+      return hydrated;
 
     } catch (error) {
       if (error instanceof ActivityError) {

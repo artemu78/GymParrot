@@ -451,16 +451,35 @@ describe("PracticeInterface", () => {
   });
 
   describe("Movement Activity", () => {
+      const movementSequence = [
+        { timestamp: 0, landmarks: [{ x: 0.5, y: 0.5, z: 0, visibility: 1 }] },
+        { timestamp: 500, landmarks: [{ x: 0.55, y: 0.5, z: 0, visibility: 1 }] },
+        { timestamp: 1000, landmarks: [{ x: 0.6, y: 0.5, z: 0, visibility: 1 }] },
+      ];
+
       const mockMovementActivity: Activity = {
           ...mockPoseActivity,
           id: "move-1",
           type: "movement",
-          movementData: [],
+          imageData: undefined,
+          movementData: movementSequence,
+          landmarks: movementSequence,
           duration: 5000
       };
 
       beforeEach(() => {
           vi.mocked(activityService.getActivityById).mockResolvedValue(mockMovementActivity);
+      });
+
+      it("should render movement playback instead of 'No image available'", async () => {
+          render(<PracticeInterface activityId="move-1" />);
+
+          await waitFor(() => {
+              expect(screen.getByText("Target Movement")).toBeInTheDocument();
+          });
+
+          expect(screen.getByTestId("movement-playback")).toBeInTheDocument();
+          expect(screen.queryByText("No image available")).not.toBeInTheDocument();
       });
 
       it("should handle movement practice flow", async () => {

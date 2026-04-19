@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
 import WebcamPreview from "./WebcamPreview";
+import MovementPlayback from "./MovementPlayback";
 import {
   mediaPipeService,
   webcamService,
@@ -630,11 +631,25 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
           {/* Main Comparison Area */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-             {/* Original Activity Image */}
+             {/* Original Activity Image / Movement Playback */}
              <div className="flex flex-col">
-                <h3 className="text-lg font-medium text-gray-900 mb-3">Target Pose</h3>
+                <h3 className="text-lg font-medium text-gray-900 mb-3">
+                  {activity.type === "movement" ? "Target Movement" : "Target Pose"}
+                </h3>
                 <div className="relative aspect-video bg-gray-100 rounded-lg overflow-hidden border border-gray-200 shadow-inner">
-                   {activity.imageData ? (
+                   {activity.type === "movement" ? (
+                      activity.movementData && activity.movementData.length > 0 ? (
+                        <MovementPlayback
+                          sequence={activity.movementData}
+                          autoPlay
+                          loop
+                        />
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-gray-400">
+                          No movement data available
+                        </div>
+                      )
+                   ) : activity.imageData ? (
                       <>
                         <img
                           src={activity.imageData}

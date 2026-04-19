@@ -9,3 +9,5 @@ count.txt
 .tanstack
 coverage
 ci-logs
+.playwright-mcp
+dev_server.log
