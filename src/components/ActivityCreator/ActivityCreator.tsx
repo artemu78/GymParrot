@@ -158,7 +158,6 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
         },
         {
           duration: 999999999,
-          frameRate: 30,
         }
       );
 
