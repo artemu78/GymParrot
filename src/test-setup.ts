@@ -6,7 +6,7 @@ import * as matchers from "@testing-library/jest-dom/matchers";
 expect.extend(matchers);
 
 // Mock IntersectionObserver for tests
-global.IntersectionObserver = vi.fn().mockImplementation(function(callback) {
+global.IntersectionObserver = vi.fn().mockImplementation(function(_callback) {
   return {
     observe: vi.fn(),
     disconnect: vi.fn(),
@@ -66,8 +66,8 @@ Object.defineProperty(HTMLVideoElement.prototype, 'readyState', {
 HTMLCanvasElement.prototype.toDataURL = vi.fn(() => 'data:image/jpeg;base64,mockdata');
 
 // Mock requestAnimationFrame and cancelAnimationFrame
-global.requestAnimationFrame = vi.fn((callback) => {
-  return setTimeout(callback, 16); // ~60fps
+global.requestAnimationFrame = vi.fn((callback: FrameRequestCallback): number => {
+  return setTimeout(callback, 16) as unknown as number; // ~60fps
 });
 
 global.cancelAnimationFrame = vi.fn((id) => {
