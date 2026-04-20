@@ -4,6 +4,12 @@ import { ActivityError } from '../types'
 import { validateActivity, validateActivityMetadata } from '../utils/validation'
 import { ERROR_MESSAGES } from '../utils/constants'
 import storageService from './StorageService'
+import videoBlobStore from './VideoBlobStore'
+
+export interface MovementVideoInput {
+  blob: Blob
+  mimeType: string
+}
 
 export class ActivityService implements IActivityService {
   private nextId = 1
@@ -77,7 +83,11 @@ export class ActivityService implements IActivityService {
     }
   }
 
-  async createMovementActivity(landmarkSequence: TimestampedLandmarks[], metadata: ActivityMetadata): Promise<string> {
+  async createMovementActivity(
+    landmarkSequence: TimestampedLandmarks[],
+    metadata: ActivityMetadata,
+    video?: MovementVideoInput
+  ): Promise<string> {
     try {
       // Validate inputs
       if (!Array.isArray(landmarkSequence) || landmarkSequence.length === 0) {
@@ -113,6 +123,17 @@ export class ActivityService implements IActivityService {
           timestamp: frame.timestamp,
           landmarks: [...frame.landmarks] // Deep copy
         }))
+      }
+
+      // Persist video blob (if provided) in the dedicated blob store. We do
+      // this before saving the activity so the stored activity points at a
+      // real blob id. LocalStorage can't hold video; IndexedDB (default blob
+      // store) can, and swapping to a cloud backend is a one-line change.
+      if (video && video.blob && video.blob.size > 0) {
+        const videoBlobId = `${activityId}_video`
+        await videoBlobStore.save(videoBlobId, video.blob)
+        activity.videoBlobId = videoBlobId
+        activity.videoMimeType = video.mimeType
       }
 
       // Validate complete activity
@@ -279,6 +300,14 @@ export class ActivityService implements IActivityService {
       const activity = await storageService.getActivity(id);
       if (!activity) {
         throw new ActivityError('Activity not found', 'NOT_FOUND')
+      }
+
+      if (activity.videoBlobId) {
+        try {
+          await videoBlobStore.remove(activity.videoBlobId);
+        } catch (error) {
+          console.warn('Failed to delete video blob:', error);
+        }
       }
 
       await storageService.deleteActivity(id);

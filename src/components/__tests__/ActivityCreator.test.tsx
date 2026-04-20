@@ -172,7 +172,7 @@ describe("ActivityCreator", () => {
 
   it("should handle movement recording successfully", async () => {
     const onActivityCreated = vi.fn();
-    const { container } = render(
+    const { container, getByText } = render(
       <ActivityCreator onActivityCreated={onActivityCreated} />
     );
 
@@ -216,6 +216,16 @@ describe("ActivityCreator", () => {
     const startButton = container.querySelector("button") as HTMLButtonElement;
     fireEvent.click(startButton);
 
+    // Trainer is now asked to review the recording before approving it.
+    const approveButton = await waitFor(() =>
+      getByText("✓ Approve & Create")
+    );
+
+    // Before approve, no activity should have been created yet.
+    expect(activityService.createMovementActivity).not.toHaveBeenCalled();
+
+    fireEvent.click(approveButton);
+
     await waitFor(() => {
       expect(mediaPipeService.startMovementTracking).toHaveBeenCalled();
       expect(activityService.createMovementActivity).toHaveBeenCalledWith(
@@ -231,7 +241,8 @@ describe("ActivityCreator", () => {
           createdBy: "trainer",
           duration: 10000,
           isPublic: true,
-        })
+        }),
+        undefined
       );
       expect(onActivityCreated).toHaveBeenCalledWith("movement-123");
     });

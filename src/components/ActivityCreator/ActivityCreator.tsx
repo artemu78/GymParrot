@@ -1,6 +1,7 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import WebcamPreview from "../WebcamPreview";
 import { mediaPipeService, webcamService, activityService } from "../../services";
+import { MovementVideoRecorder } from "../../services/MovementVideoRecorder";
 import type {
   PoseLandmark,
   TimestampedLandmarks,
@@ -13,6 +14,7 @@ import type { RecordingState, ActivityCreatorProps } from "./types";
 import CountdownOverlay from "./CountdownOverlay";
 import CapturingFlash from "./CapturingFlash";
 import CapturedPoseView from "./CapturedPoseView";
+import MovementReviewView from "./MovementReviewView";
 import ActionButtons from "./ActionButtons";
 import ErrorDisplay from "./ErrorDisplay";
 import Instructions from "./Instructions";
@@ -39,11 +41,22 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
   const [countdownDelay, setCountdownDelay] = useState(3);
   const [isCameraActive, setIsCameraActive] = useState(false);
 
+  const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const recordingDataRef = useRef<TimestampedLandmarks[]>([]);
   const stopTrackingRef = useRef<(() => void) | null>(null);
   const isInitializedRef = useRef<boolean>(false);
   const countdownTimeoutRef = useRef<number | null>(null);
+  const videoRecorderRef = useRef<MovementVideoRecorder | null>(null);
+  const recordedVideoRef = useRef<{ blob: Blob; mimeType: string } | null>(null);
+
+  useEffect(() => {
+    const url = recordedVideoUrl;
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [recordedVideoUrl]);
 
   const clearError = useCallback(() => {
     setError(null);
@@ -276,11 +289,31 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
       recordingDataRef.current = [];
       setRecordingProgress(0);
 
+      const videoEl = videoRef.current;
+      if (!videoEl) throw new Error("Video element not ready");
+
+      // Start real-video recording (landmarks baked into the frame).
+      if (MovementVideoRecorder.isSupported()) {
+        try {
+          const recorder = new MovementVideoRecorder(videoEl, { frameRate: 30 });
+          recorder.start();
+          videoRecorderRef.current = recorder;
+        } catch (err) {
+          console.warn("Video recording unavailable, continuing without video:", err);
+          videoRecorderRef.current = null;
+        }
+      } else {
+        console.warn("MediaRecorder not supported – movement will be saved without video");
+      }
+
       const stopTracking = await mediaPipeService.startMovementTracking(
         videoRef.current,
         (landmarks, timestamp) => {
           recordingDataRef.current.push({ timestamp, landmarks });
           setCurrentLandmarks(landmarks);
+          if (videoRecorderRef.current) {
+            videoRecorderRef.current.pushLandmarks(landmarks);
+          }
         },
         {
           duration,
@@ -304,23 +337,35 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
                 );
               }
 
-              const metadata: ActivityMetadata = {
-                name: activityName || `Movement Activity ${Date.now()}`,
-                type: "movement",
-                createdBy: "trainer",
-                duration,
-                isPublic: true,
-              };
+              // Stop video recording and collect the blob for review.
+              let recordedVideo: { blob: Blob; mimeType: string } | null = null;
+              if (videoRecorderRef.current) {
+                try {
+                  const result = await videoRecorderRef.current.stop();
+                  if (result.blob.size > 0) {
+                    recordedVideo = { blob: result.blob, mimeType: result.mimeType };
+                  }
+                } catch (err) {
+                  console.warn("Failed to finalize video recording:", err);
+                } finally {
+                  videoRecorderRef.current = null;
+                }
+              }
 
-              const activityId = await activityService.createMovementActivity(
-                sequence,
-                metadata
-              );
+              recordedVideoRef.current = recordedVideo;
+              if (recordedVideo) {
+                setRecordedVideoUrl(URL.createObjectURL(recordedVideo.blob));
+              } else {
+                setRecordedVideoUrl(null);
+              }
 
-              setRecordingState("completed");
               stopCamera();
-              onActivityCreated?.(activityId);
+              setRecordingState("reviewing");
             } catch (error) {
+              if (videoRecorderRef.current) {
+                videoRecorderRef.current.cancel();
+                videoRecorderRef.current = null;
+              }
               stopCamera();
 
               const message =
@@ -331,6 +376,10 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
             }
           },
           onError: (error) => {
+            if (videoRecorderRef.current) {
+              videoRecorderRef.current.cancel();
+              videoRecorderRef.current = null;
+            }
             stopCamera();
             handleError(error.message);
           },
@@ -339,6 +388,10 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
 
       stopTrackingRef.current = stopTracking;
     } catch (error) {
+      if (videoRecorderRef.current) {
+        videoRecorderRef.current.cancel();
+        videoRecorderRef.current = null;
+      }
       stopCamera();
 
       const message =
@@ -353,16 +406,65 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
     startCamera,
     stopCamera,
     duration,
-    activityName,
-    onActivityCreated,
     handleError,
   ]);
+
+  const approveMovement = useCallback(async () => {
+    if (recordingState !== "reviewing") return;
+    const sequence = recordingDataRef.current;
+    if (sequence.length === 0) {
+      handleError("No movement data to save");
+      return;
+    }
+
+    try {
+      setRecordingState("processing");
+
+      const metadata: ActivityMetadata = {
+        name: activityName || `Movement Activity ${Date.now()}`,
+        type: "movement",
+        createdBy: "trainer",
+        duration,
+        isPublic: true,
+      };
+
+      const activityId = await activityService.createMovementActivity(
+        sequence,
+        metadata,
+        recordedVideoRef.current ?? undefined
+      );
+
+      recordedVideoRef.current = null;
+      setRecordedVideoUrl(null);
+      setRecordingState("completed");
+      onActivityCreated?.(activityId);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to save movement";
+      handleError(message);
+    }
+  }, [recordingState, activityName, duration, onActivityCreated, handleError]);
+
+  const retakeMovement = useCallback(() => {
+    recordingDataRef.current = [];
+    recordedVideoRef.current = null;
+    setRecordedVideoUrl(null);
+    setCurrentLandmarks([]);
+    setRecordingProgress(0);
+    setRecordingState("idle");
+  }, []);
 
   const stopRecording = useCallback(() => {
     if (stopTrackingRef.current) {
       stopTrackingRef.current();
       stopTrackingRef.current = null;
     }
+    if (videoRecorderRef.current) {
+      videoRecorderRef.current.cancel();
+      videoRecorderRef.current = null;
+    }
+    recordedVideoRef.current = null;
+    setRecordedVideoUrl(null);
     cancelCountdown();
     setRecordingState("idle");
     setRecordingProgress(0);
@@ -521,7 +623,12 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
 
           {/* Camera Preview */}
           <div className="mb-6 flex flex-col items-center">
-            {recordingState === "reviewing" && capturedImage ? (
+            {recordingState === "reviewing" && activityType === "movement" ? (
+              <MovementReviewView
+                videoUrl={recordedVideoUrl}
+                sequence={recordingDataRef.current}
+              />
+            ) : recordingState === "reviewing" && capturedImage ? (
               <CapturedPoseView
                 capturedImage={capturedImage}
                 capturedLandmarks={capturedLandmarks}
@@ -565,8 +672,12 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
             }
             onToggleCamera={toggleCamera}
             onStopRecording={stopRecording}
-            onApprovePose={approvePose}
-            onRetakePose={retakePose}
+            onApprovePose={
+              activityType === "movement" ? approveMovement : approvePose
+            }
+            onRetakePose={
+              activityType === "movement" ? retakeMovement : retakePose
+            }
             onResetForm={resetForm}
           />
 

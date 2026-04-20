@@ -21,6 +21,7 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({
   canStartRecording,
   isCameraActive,
   isCapturing,
+  activityType,
   onStartRecording,
   onToggleCamera,
   onStopRecording,
@@ -68,7 +69,11 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({
       )}
 
       {recordingState === "reviewing" && (
-        <ReviewSection onApprove={onApprovePose} onRetake={onRetakePose} />
+        <ReviewSection
+          onApprove={onApprovePose}
+          onRetake={onRetakePose}
+          activityType={activityType}
+        />
       )}
 
       {isProcessing && (

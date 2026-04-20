@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { ActivityService } from '../ActivityService'
 import { ActivityError } from '../../types'
 import type { PoseLandmark, TimestampedLandmarks, ActivityMetadata } from '../../types'
@@ -107,9 +107,52 @@ describe('ActivityService', () => {
 
     it('should throw error for wrong activity type', async () => {
       const wrongMetadata = { ...mockMovementMetadata, type: 'pose' as const }
-      
+
       await expect(service.createMovementActivity(mockMovementSequence, wrongMetadata))
         .rejects.toThrow(ActivityError)
+    })
+
+    it('should persist a reference video via the blob store when provided', async () => {
+      const videoBlobStore = (await import('../VideoBlobStore')).default
+      const saveSpy = vi.spyOn(videoBlobStore, 'save').mockResolvedValue()
+
+      try {
+        const blob = new Blob(['fake-video'], { type: 'video/webm' })
+        const activityId = await service.createMovementActivity(
+          mockMovementSequence,
+          mockMovementMetadata,
+          { blob, mimeType: 'video/webm' }
+        )
+
+        expect(saveSpy).toHaveBeenCalledWith(`${activityId}_video`, blob)
+
+        const stored = await service.getActivityById(activityId)
+        expect(stored.videoBlobId).toBe(`${activityId}_video`)
+        expect(stored.videoMimeType).toBe('video/webm')
+      } finally {
+        saveSpy.mockRestore()
+      }
+    })
+
+    it('should not persist a video when the blob is empty', async () => {
+      const videoBlobStore = (await import('../VideoBlobStore')).default
+      const saveSpy = vi.spyOn(videoBlobStore, 'save').mockResolvedValue()
+
+      try {
+        const blob = new Blob([], { type: 'video/webm' })
+        const activityId = await service.createMovementActivity(
+          mockMovementSequence,
+          mockMovementMetadata,
+          { blob, mimeType: 'video/webm' }
+        )
+
+        expect(saveSpy).not.toHaveBeenCalled()
+
+        const stored = await service.getActivityById(activityId)
+        expect(stored.videoBlobId).toBeUndefined()
+      } finally {
+        saveSpy.mockRestore()
+      }
     })
   })
 
