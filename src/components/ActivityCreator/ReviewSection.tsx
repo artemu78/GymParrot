@@ -3,9 +3,20 @@ import React from "react";
 interface ReviewSectionProps {
   onApprove: () => void;
   onRetake: () => void;
+  activityType?: "pose" | "movement";
 }
 
-const ReviewSection: React.FC<ReviewSectionProps> = ({ onApprove, onRetake }) => {
+const ReviewSection: React.FC<ReviewSectionProps> = ({
+  onApprove,
+  onRetake,
+  activityType = "pose",
+}) => {
+  const isMovement = activityType === "movement";
+  const heading = isMovement ? "Review Your Movement" : "Review Your Pose";
+  const description = isMovement
+    ? "Watch the recorded video. Approve it to save the activity or retake if needed."
+    : "Check if your pose looks good. You can approve it to create the activity or retake if needed.";
+
   return (
     <div className="flex flex-col items-center space-y-4 w-full max-w-md">
       <div className="bg-blue-50 border border-blue-200 rounded-md p-4 w-full">
@@ -21,11 +32,9 @@ const ReviewSection: React.FC<ReviewSectionProps> = ({ onApprove, onRetake }) =>
               clipRule="evenodd"
             />
           </svg>
-          <span className="font-medium text-blue-800">Review Your Pose</span>
+          <span className="font-medium text-blue-800">{heading}</span>
         </div>
-        <p className="text-sm text-blue-700">
-          Check if your pose looks good. You can approve it to create the activity or retake if needed.
-        </p>
+        <p className="text-sm text-blue-700">{description}</p>
       </div>
       <div className="flex space-x-3 w-full">
         <button

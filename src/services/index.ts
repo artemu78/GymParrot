@@ -15,6 +15,12 @@ export { default as comparisonService } from './ComparisonService'
 export { LocalStorageService, BackendStorageService } from './StorageService'
 export { default as storageService } from './StorageService'
 export type { IStorageService } from './StorageService'
+export {
+  IndexedDbVideoBlobStore,
+  BackendVideoBlobStore,
+} from './VideoBlobStore'
+export { default as videoBlobStore } from './VideoBlobStore'
+export type { VideoBlobStore } from './VideoBlobStore'
 
 export interface MediaPipeService {
   initializePoseLandmarker(): Promise<PoseLandmarker>
@@ -55,7 +61,11 @@ export interface MediaPipeService {
 
 export interface ActivityService {
   createPoseActivity(landmarks: PoseLandmark[], metadata: ActivityMetadata, imageData?: string): Promise<string>
-  createMovementActivity(landmarkSequence: TimestampedLandmarks[], metadata: ActivityMetadata): Promise<string>
+  createMovementActivity(
+    landmarkSequence: TimestampedLandmarks[],
+    metadata: ActivityMetadata,
+    video?: { blob: Blob; mimeType: string }
+  ): Promise<string>
   getActivities(): Promise<Activity[]>
   getActivityById(id: string): Promise<Activity>
   saveActivity(activity: Activity): Promise<void>
