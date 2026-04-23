@@ -125,24 +125,39 @@ export class ActivityService implements IActivityService {
         }))
       }
 
-      // Persist video blob (if provided) in the dedicated blob store. We do
-      // this before saving the activity so the stored activity points at a
-      // real blob id. LocalStorage can't hold video; IndexedDB (default blob
+      // Persist video blob (mandatory for movement) in the dedicated blob store.
+      // We do this before saving the activity so the stored activity points at
+      // a real blob id. LocalStorage can't hold video; IndexedDB (default blob
       // store) can, and swapping to a cloud backend is a one-line change.
+      let videoBlobId: string | undefined;
       if (video && video.blob && video.blob.size > 0) {
-        const videoBlobId = `${activityId}_video`
+        videoBlobId = `${activityId}_video`
         await videoBlobStore.save(videoBlobId, video.blob)
         activity.videoBlobId = videoBlobId
         activity.videoMimeType = video.mimeType
+      } else {
+        throw new ActivityError('Movement activities must include a recorded reference video', 'VIDEO_REQUIRED')
       }
 
-      // Validate complete activity
-      if (!validateActivity(activity)) {
-        throw new ActivityError('Created activity failed validation', 'VALIDATION_FAILED')
-      }
+      try {
+        // Validate complete activity
+        if (!validateActivity(activity)) {
+          throw new ActivityError('Created activity failed validation', 'VALIDATION_FAILED')
+        }
 
-      // Store activity
-      await this.saveActivity(activity)
+        // Store activity
+        await this.saveActivity(activity)
+      } catch (error) {
+        // Rollback video blob if activity save fails to prevent orphaned blobs
+        if (videoBlobId) {
+          try {
+            await videoBlobStore.remove(videoBlobId)
+          } catch (cleanupError) {
+            console.warn('Failed to cleanup video blob after activity save failure:', cleanupError)
+          }
+        }
+        throw error
+      }
 
       return activityId
 

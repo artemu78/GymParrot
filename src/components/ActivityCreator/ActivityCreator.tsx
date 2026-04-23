@@ -40,6 +40,7 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
   const [showSettings, setShowSettings] = useState(false);
   const [countdownDelay, setCountdownDelay] = useState(3);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [isMovementSupported] = useState(() => MovementVideoRecorder.isSupported());
 
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
 
@@ -299,11 +300,10 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
           recorder.start();
           videoRecorderRef.current = recorder;
         } catch (err) {
-          console.warn("Video recording unavailable, continuing without video:", err);
-          videoRecorderRef.current = null;
+          throw new Error(`Failed to start video recording: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
       } else {
-        console.warn("MediaRecorder not supported – movement will be saved without video");
+        throw new Error("Your browser does not support video recording, which is required for movement activities.");
       }
 
       const stopTracking = await mediaPipeService.startMovementTracking(
@@ -579,7 +579,7 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
                   />
                   <span className="text-sm text-gray-700">Single Pose</span>
                 </label>
-                <label className="flex items-center">
+                <label className={`flex items-center ${!isMovementSupported ? 'opacity-50 cursor-not-allowed' : ''}`}>
                   <input
                     type="radio"
                     value="movement"
@@ -590,10 +590,11 @@ const ActivityCreator: React.FC<ActivityCreatorProps> = ({
                         onTypeChange?.(newType);
                     }}
                     className="mr-2"
-                    disabled={recordingState !== "idle"}
+                    disabled={recordingState !== "idle" || !isMovementSupported}
                   />
                   <span className="text-sm text-gray-700">
                     Movement Sequence
+                    {!isMovementSupported && " (Unsupported by browser)"}
                   </span>
                 </label>
               </div>

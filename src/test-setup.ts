@@ -77,8 +77,55 @@ global.cancelAnimationFrame = vi.fn((id: number) => {
   clearTimeout(id as unknown as NodeJS.Timeout);
 });
 
+// Mock videoBlobStore
+vi.mock("./services/VideoBlobStore", () => {
+  const store = new Map<string, Blob>();
+  return {
+    default: {
+      save: vi.fn(async (id: string, blob: Blob) => {
+        store.set(id, blob);
+      }),
+      get: vi.fn(async (id: string) => store.get(id) || null),
+      remove: vi.fn(async (id: string) => {
+        store.delete(id);
+      }),
+      resolveUrl: vi.fn(async (id: string) => {
+        const blob = store.get(id);
+        return blob ? URL.createObjectURL(blob) : null;
+      }),
+    }
+  };
+});
+
+// Mock localStorage
+const localStorageMock = (function() {
+  let store: Record<string, string> = {};
+  return {
+    getItem: vi.fn((key: string) => store[key] || null),
+    setItem: vi.fn((key: string, value: string) => {
+      store[key] = value.toString();
+    }),
+    removeItem: vi.fn((key: string) => {
+      delete store[key];
+    }),
+    clear: vi.fn(() => {
+      store = {};
+    }),
+    key: vi.fn((index: number) => Object.keys(store)[index] || null),
+    get length() {
+      return Object.keys(store).length;
+    }
+  };
+})();
+
+Object.defineProperty(global, 'localStorage', {
+  value: localStorageMock,
+  writable: true
+});
+
 // Cleanup after each test case
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.clearAllMocks();
 });
