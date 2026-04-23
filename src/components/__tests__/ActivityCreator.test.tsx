@@ -7,6 +7,7 @@ import {
   webcamService,
   activityService,
 } from "../../services";
+import { MovementVideoRecorder } from "../../services/MovementVideoRecorder";
 
 // Mock the services
 vi.mock("../../services", () => ({
@@ -27,6 +28,22 @@ vi.mock("../../services", () => ({
     createMovementActivity: vi.fn(),
   },
 }));
+
+vi.mock("../../services/MovementVideoRecorder", () => {
+  const MockRecorder = vi.fn().mockImplementation(function (this: any) {
+    this.start = vi.fn();
+    this.stop = vi.fn().mockResolvedValue({
+      blob: new Blob(["test"], { type: "video/webm" }),
+      mimeType: "video/webm",
+    });
+    this.pushLandmarks = vi.fn();
+    this.cancel = vi.fn();
+    return this;
+  });
+  // @ts-ignore
+  MockRecorder.isSupported = vi.fn().mockReturnValue(true);
+  return { MovementVideoRecorder: MockRecorder };
+});
 
 // Mock WebcamPreview component
 vi.mock("../WebcamPreview", () => ({
@@ -242,7 +259,10 @@ describe("ActivityCreator", () => {
           duration: 10000,
           isPublic: true,
         }),
-        undefined
+        expect.objectContaining({
+            blob: expect.any(Blob),
+            mimeType: "video/webm"
+        })
       );
       expect(onActivityCreated).toHaveBeenCalledWith("movement-123");
     });
