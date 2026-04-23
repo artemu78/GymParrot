@@ -37,6 +37,11 @@ describe('ActivityService', () => {
     isPublic: true
   }
 
+  const mockVideo = {
+    blob: new Blob(['fake-video'], { type: 'video/webm' }),
+    mimeType: 'video/webm'
+  }
+
   describe('createPoseActivity', () => {
     it('should create pose activity successfully', async () => {
       const activityId = await service.createPoseActivity(mockPoseLandmarks, mockPoseMetadata)
@@ -75,7 +80,7 @@ describe('ActivityService', () => {
 
   describe('createMovementActivity', () => {
     it('should create movement activity successfully', async () => {
-      const activityId = await service.createMovementActivity(mockMovementSequence, mockMovementMetadata)
+      const activityId = await service.createMovementActivity(mockMovementSequence, mockMovementMetadata, mockVideo)
 
       expect(activityId).toMatch(/^movement_\d+$/)
       
@@ -86,13 +91,18 @@ describe('ActivityService', () => {
       expect(activity.landmarks).toHaveLength(3)
     })
 
+    it('should throw error when video is missing', async () => {
+      await expect(service.createMovementActivity(mockMovementSequence, mockMovementMetadata))
+        .rejects.toThrow(/video/i)
+    })
+
     it('should throw error for empty sequence', async () => {
-      await expect(service.createMovementActivity([], mockMovementMetadata))
+      await expect(service.createMovementActivity([], mockMovementMetadata, mockVideo))
         .rejects.toThrow(ActivityError)
     })
 
     it('should throw error for invalid sequence', async () => {
-      await expect(service.createMovementActivity('invalid' as any, mockMovementMetadata))
+      await expect(service.createMovementActivity('invalid' as any, mockMovementMetadata, mockVideo))
         .rejects.toThrow(ActivityError)
     })
 
@@ -101,14 +111,14 @@ describe('ActivityService', () => {
         { timestamp: 'invalid', landmarks: mockPoseLandmarks }
       ] as any
 
-      await expect(service.createMovementActivity(invalidSequence, mockMovementMetadata))
+      await expect(service.createMovementActivity(invalidSequence, mockMovementMetadata, mockVideo))
         .rejects.toThrow(ActivityError)
     })
 
     it('should throw error for wrong activity type', async () => {
       const wrongMetadata = { ...mockMovementMetadata, type: 'pose' as const }
 
-      await expect(service.createMovementActivity(mockMovementSequence, wrongMetadata))
+      await expect(service.createMovementActivity(mockMovementSequence, wrongMetadata, mockVideo))
         .rejects.toThrow(ActivityError)
     })
 
@@ -134,22 +144,19 @@ describe('ActivityService', () => {
       }
     })
 
-    it('should not persist a video when the blob is empty', async () => {
+    it('should throw error when the video blob is empty', async () => {
       const videoBlobStore = (await import('../VideoBlobStore')).default
       const saveSpy = vi.spyOn(videoBlobStore, 'save').mockResolvedValue()
 
       try {
         const blob = new Blob([], { type: 'video/webm' })
-        const activityId = await service.createMovementActivity(
+        await expect(service.createMovementActivity(
           mockMovementSequence,
           mockMovementMetadata,
           { blob, mimeType: 'video/webm' }
-        )
+        )).rejects.toThrow(/video/i)
 
         expect(saveSpy).not.toHaveBeenCalled()
-
-        const stored = await service.getActivityById(activityId)
-        expect(stored.videoBlobId).toBeUndefined()
       } finally {
         saveSpy.mockRestore()
       }
@@ -292,7 +299,7 @@ describe('ActivityService', () => {
   describe('getActivitiesByType', () => {
     it('should return activities by type', async () => {
       const poseId = await service.createPoseActivity(mockPoseLandmarks, mockPoseMetadata)
-      await service.createMovementActivity(mockMovementSequence, mockMovementMetadata)
+      await service.createMovementActivity(mockMovementSequence, mockMovementMetadata, mockVideo)
 
       const poseActivities = await service.getActivitiesByType('pose')
       
@@ -336,7 +343,7 @@ describe('ActivityService', () => {
   describe('getActivityStats', () => {
     it('should return correct statistics', async () => {
       await service.createPoseActivity(mockPoseLandmarks, mockPoseMetadata)
-      await service.createMovementActivity(mockMovementSequence, mockMovementMetadata)
+      await service.createMovementActivity(mockMovementSequence, mockMovementMetadata, mockVideo)
       
       const privateMetadata = { ...mockPoseMetadata, isPublic: false }
       await service.createPoseActivity(mockPoseLandmarks, privateMetadata)
@@ -364,7 +371,7 @@ describe('ActivityService', () => {
   describe('clearAll', () => {
     it('should clear all activities', async () => {
       await service.createPoseActivity(mockPoseLandmarks, mockPoseMetadata)
-      await service.createMovementActivity(mockMovementSequence, mockMovementMetadata)
+      await service.createMovementActivity(mockMovementSequence, mockMovementMetadata, mockVideo)
 
       await service.clearAll()
 
