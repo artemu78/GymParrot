@@ -26,6 +26,11 @@ vi.mock("../../services", () => ({
         totalFrames: 0,
         timestamp: 0,
       },
+      memory: {
+        historySize: 0,
+        estimatedMemory: 0,
+      },
+      frameRate: 0,
     })),
   },
   webcamService: {

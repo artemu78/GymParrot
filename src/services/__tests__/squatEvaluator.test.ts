@@ -39,4 +39,13 @@ describe("SquatEvaluator", () => {
 			repetitions: 0,
 		});
 	});
+	it("reports cannot evaluate for invalid knee geometry", () => {
+		const frame = squatFrame(0);
+		frame[27] = { ...frame[25] };
+		expect(new SquatEvaluator().update(frame)).toMatchObject({
+			canEvaluate: false,
+			depth: null,
+			warning: expect.stringMatching(/geometry is invalid/i),
+		});
+	});
 });

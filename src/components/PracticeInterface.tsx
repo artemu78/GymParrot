@@ -179,7 +179,11 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isTracking, setIsTracking] = useState(false);
   const [isCameraTesting, setIsCameraTesting] = useState(false);
-  const [diagnosticMetrics, setDiagnosticMetrics] = useState(() => mediaPipeService.getPerformanceMetrics().monitor);
+  const [diagnostics, setDiagnostics] = useState(() => ({
+    ...mediaPipeService.getPerformanceMetrics(),
+    uiFps: 0,
+    recordingEnabled: false,
+  }));
   const diagnosticsEnabled = new URLSearchParams(window.location.search).has("poseDiagnostics");
 
   // New states for the requested features
@@ -196,12 +200,19 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   // Ref to access latest landmarks in callbacks without triggering effects
   const currentLandmarksRef = useRef<PoseLandmark[]>([]);
   const lastUiUpdateRef = useRef(0);
+  const uiPublishTimesRef = useRef<number[]>([]);
 
   const publishLandmarks = useCallback((landmarks: PoseLandmark[]) => {
     currentLandmarksRef.current = landmarks;
     const now = performance.now();
     if (now - lastUiUpdateRef.current >= 100) {
       lastUiUpdateRef.current = now;
+      uiPublishTimesRef.current = [
+        ...uiPublishTimesRef.current.filter(
+          (timestamp) => now - timestamp <= 1000
+        ),
+        now,
+      ];
       setCurrentLandmarks(landmarks);
     }
   }, []);
@@ -232,7 +243,25 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   useEffect(() => {
     if (!diagnosticsEnabled) return;
     const timer = window.setInterval(() => {
-      setDiagnosticMetrics(mediaPipeService.getPerformanceMetrics().monitor);
+      const now = performance.now();
+      const recentPublishes = uiPublishTimesRef.current.filter(
+        (timestamp) => now - timestamp <= 1000
+      );
+      uiPublishTimesRef.current = recentPublishes;
+      const publishDuration =
+        recentPublishes.length > 1
+          ? recentPublishes.at(-1)! - recentPublishes[0]
+          : 0;
+      const uiFps =
+        publishDuration > 0
+          ? ((recentPublishes.length - 1) * 1000) / publishDuration
+          : 0;
+
+      setDiagnostics({
+        ...mediaPipeService.getPerformanceMetrics(),
+        uiFps,
+        recordingEnabled: traineeRecorderRef.current !== null,
+      });
     }, 500);
     return () => window.clearInterval(timer);
   }, [diagnosticsEnabled]);
@@ -584,7 +613,16 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       stopPractice();
       handleError(message);
     }
-  }, [activity, practiceState, clearError, handleError, stopPractice, difficulty]);
+  }, [
+    activity,
+    practiceState,
+    clearError,
+    handleError,
+    stopPractice,
+    difficulty,
+    publishLandmarks,
+    reviewRecordingEnabled,
+  ]);
 
   const testCamera = useCallback(async () => {
     if (!videoRef.current) return;
@@ -868,14 +906,14 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
           {diagnosticsEnabled && (
             <PerformancePanel
-              metrics={diagnosticMetrics}
-              uiFps={10}
+              metrics={diagnostics.monitor}
+              uiFps={diagnostics.uiFps}
               width={videoRef.current?.videoWidth ?? 0}
               height={videoRef.current?.videoHeight ?? 0}
               delegate={MEDIAPIPE_CONFIG.baseOptions.delegate}
-              recordingEnabled={reviewRecordingEnabled}
-              retainedFrames={movementAttemptRef.current.length}
-              retainedBytes={JSON.stringify(movementAttemptRef.current).length}
+              recordingEnabled={diagnostics.recordingEnabled}
+              retainedFrames={diagnostics.memory.historySize}
+              retainedBytes={diagnostics.memory.estimatedMemory}
             />
           )}
 

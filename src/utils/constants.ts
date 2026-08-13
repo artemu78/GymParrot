@@ -55,7 +55,7 @@ export const PERFORMANCE_CONFIG = {
 
 // Performance thresholds for warnings
 export const PERFORMANCE_THRESHOLDS = {
-  LOW_FPS_WARNING: 20,
+  LOW_FPS_WARNING: PERFORMANCE_CONFIG.TARGET_FPS * 0.8,
   HIGH_MEMORY_WARNING: 100 * 1024 * 1024, // 100MB
   SLOW_PROCESSING_WARNING: 50, // 50ms per frame
 } as const

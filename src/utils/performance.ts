@@ -30,6 +30,7 @@ export class PerformanceMonitor {
   private totalFrames = 0;
   private completedFrames = 0;
   private firstFrameAt = 0;
+  private stoppedAt = 0;
   private lastLogTime = 0;
   private isMonitoring = false;
 
@@ -44,12 +45,15 @@ export class PerformanceMonitor {
     this.completedFrames = 0;
     this.lastLogTime = performance.now();
     this.firstFrameAt = this.lastLogTime;
+    this.stoppedAt = 0;
   }
 
   /**
    * Stop performance monitoring
    */
   stop(): void {
+    if (!this.isMonitoring) return;
+    this.stoppedAt = performance.now();
     this.isMonitoring = false;
   }
 
@@ -91,7 +95,10 @@ export class PerformanceMonitor {
       : 0;
     const sorted = [...this.frameTimes].sort((a, b) => a - b);
     const p95Index = Math.max(0, Math.ceil(sorted.length * 0.95) - 1);
-    const elapsed = performance.now() - this.firstFrameAt;
+    const measurementEnd = this.isMonitoring
+      ? performance.now()
+      : this.stoppedAt;
+    const elapsed = measurementEnd - this.firstFrameAt;
     const fps = elapsed > 0 ? (this.completedFrames * 1000) / elapsed : 0;
 
     return {

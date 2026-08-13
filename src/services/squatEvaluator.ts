@@ -68,6 +68,17 @@ export class SquatEvaluator {
 
 		const leftAngle = jointAngle(required[0], required[2], required[4]);
 		const rightAngle = jointAngle(required[1], required[3], required[5]);
+		if (!Number.isFinite(leftAngle) || !Number.isFinite(rightAngle)) {
+			this.candidate = null;
+			this.candidateFrames = 0;
+			return {
+				canEvaluate: false,
+				phase: this.phase,
+				repetitions: this.repetitions,
+				depth: null,
+				warning: "Cannot evaluate squat: knee geometry is invalid",
+			};
+		}
 		const kneeAngle = (leftAngle + rightAngle) / 2;
 		const depth = Math.max(
 			0,

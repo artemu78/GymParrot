@@ -29,8 +29,12 @@ describe('ComparisonService', () => {
 
   const bendLegs = (landmarks: PoseLandmark[], amount = 0.25) => {
     const changed = landmarks.map((landmark) => ({ ...landmark }))
-    for (const index of [25, 27, 29, 31]) changed[index].x += amount
-    for (const index of [26, 28, 30, 32]) changed[index].x -= amount
+    for (const index of [25, 27, 29, 31]) {
+      if (changed[index]) changed[index].x += amount
+    }
+    for (const index of [26, 28, 30, 32]) {
+      if (changed[index]) changed[index].x -= amount
+    }
     return changed
   }
 
@@ -45,6 +49,27 @@ describe('ComparisonService', () => {
       expect(service.calculateSimilarityScore(original, equivalent)).toBeGreaterThan(0.95)
       expect(service.calculateSimilarityScore(original, incorrect)).toBeLessThan(
         service.calculateSimilarityScore(original, equivalent),
+      )
+    })
+
+    it('uses normalized poses for score, feedback, and suggestions', () => {
+      const original = standingPose()
+      const equivalent = transformPose(original, 0.65, 0.18, 0.12)
+
+      const result = service.comparePoses(original, equivalent, 'hard')
+
+      expect(result.score).toBeGreaterThan(0.95)
+      expect(result.feedback).not.toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/positioning needs adjustment/i),
+        ]),
+      )
+      expect(result.suggestions).not.toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(
+            /adjust your arm|leg positioning|align your torso|adjust your head/i,
+          ),
+        ]),
       )
     })
     it('should return 1.0 for identical poses', () => {

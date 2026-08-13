@@ -34,21 +34,28 @@ export class ComparisonService implements IComparisonService {
         };
       }
 
-      // Calculate similarity score
-      const score = this.calculateSimilarityScore(recorded, current);
+      const normalizedRecorded = normalizePose(recorded);
+      const normalizedCurrent = normalizePose(current);
+      const score =
+        normalizedRecorded.warning || normalizedCurrent.warning
+          ? 0
+          : this.calculateNormalizedSimilarityScore(
+              normalizedRecorded.landmarks,
+              normalizedCurrent.landmarks
+            );
       const threshold = DIFFICULTY_THRESHOLDS[difficulty];
       const isMatch = score >= threshold;
 
       // Generate feedback and suggestions
       const feedback = this.generatePoseFeedback(
-        recorded,
-        current,
+        normalizedRecorded.landmarks,
+        normalizedCurrent.landmarks,
         score,
         threshold
       );
       const suggestions = this.generatePoseSuggestions(
-        recorded,
-        current,
+        normalizedRecorded.landmarks,
+        normalizedCurrent.landmarks,
         difficulty
       );
 
@@ -163,7 +170,17 @@ export class ComparisonService implements IComparisonService {
     const first = normalizePose(pose1);
     const second = normalizePose(pose2, mirrored);
     if (first.warning || second.warning) return 0;
-    const minLength = Math.min(first.landmarks.length, second.landmarks.length);
+    return this.calculateNormalizedSimilarityScore(
+      first.landmarks,
+      second.landmarks
+    );
+  }
+
+  private calculateNormalizedSimilarityScore(
+    pose1: Array<PoseLandmark | null>,
+    pose2: Array<PoseLandmark | null>
+  ): number {
+    const minLength = Math.min(pose1.length, pose2.length);
     let totalDistance = 0;
     let validComparisons = 0;
 
@@ -186,8 +203,8 @@ export class ComparisonService implements IComparisonService {
 
     // Calculate weighted distance
     for (let i = 0; i < minLength; i++) {
-      const landmark1 = first.landmarks[i];
-      const landmark2 = second.landmarks[i];
+      const landmark1 = pose1[i];
+      const landmark2 = pose2[i];
 
       // Validate landmark data
       if (
@@ -291,8 +308,8 @@ export class ComparisonService implements IComparisonService {
   }
 
   private generatePoseFeedback(
-    recorded: PoseLandmark[],
-    current: PoseLandmark[],
+    recorded: Array<PoseLandmark | null>,
+    current: Array<PoseLandmark | null>,
     score: number,
     threshold: number
   ): string[] {
@@ -338,8 +355,8 @@ export class ComparisonService implements IComparisonService {
   }
 
   private generatePoseSuggestions(
-    recorded: PoseLandmark[],
-    current: PoseLandmark[],
+    recorded: Array<PoseLandmark | null>,
+    current: Array<PoseLandmark | null>,
     difficulty: DifficultyLevel
   ): string[] {
     const suggestions: string[] = [];
@@ -411,8 +428,8 @@ export class ComparisonService implements IComparisonService {
   }
 
   private analyzeBodyPartDifferences(
-    recorded: PoseLandmark[],
-    current: PoseLandmark[]
+    recorded: Array<PoseLandmark | null>,
+    current: Array<PoseLandmark | null>
   ): string[] {
     const feedback: string[] = [];
     const minLength = Math.min(recorded.length, current.length);
@@ -435,6 +452,8 @@ export class ComparisonService implements IComparisonService {
           const landmark2 = current[index];
 
           if (
+            landmark1 &&
+            landmark2 &&
             (landmark1.visibility || 1) >= 0.5 &&
             (landmark2.visibility || 1) >= 0.5
           ) {
@@ -497,8 +516,8 @@ export class ComparisonService implements IComparisonService {
   }
 
   private findMajorDifferences(
-    recorded: PoseLandmark[],
-    current: PoseLandmark[]
+    recorded: Array<PoseLandmark | null>,
+    current: Array<PoseLandmark | null>
   ): {
     arms: boolean;
     legs: boolean;
@@ -526,6 +545,8 @@ export class ComparisonService implements IComparisonService {
           const landmark2 = current[index];
 
           if (
+            landmark1 &&
+            landmark2 &&
             (landmark1.visibility || 1) >= 0.5 &&
             (landmark2.visibility || 1) >= 0.5
           ) {

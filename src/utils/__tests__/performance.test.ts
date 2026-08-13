@@ -61,6 +61,22 @@ describe('PerformanceMonitor', () => {
     });
   });
 
+  it('freezes effective FPS after monitoring stops', () => {
+    let now = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    monitor.start();
+    now = 100;
+    monitor.recordFrame(10);
+    now = 200;
+    monitor.stop();
+
+    const stoppedFps = monitor.getMetrics().fps;
+    now = 1200;
+
+    expect(monitor.getMetrics().fps).toBe(stoppedFps);
+    expect(stoppedFps).toBe(5);
+  });
+
   it('should detect when frames should be skipped', () => {
     const shouldSkip = monitor.shouldSkipFrame(150); // 150ms is > threshold
     expect(shouldSkip).toBe(true);
