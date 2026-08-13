@@ -7,7 +7,6 @@ import {
   webcamService,
   activityService,
 } from "../../services";
-import { MovementVideoRecorder } from "../../services/MovementVideoRecorder";
 
 // Mock the services
 vi.mock("../../services", () => ({

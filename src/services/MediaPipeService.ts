@@ -313,6 +313,7 @@ export class MediaPipeService implements IMediaPipeService {
     onPoseDetected: (landmarks: PoseLandmark[], timestamp: number) => void,
     options: {
       duration?: number;
+      targetFps?: number;
       onProgress?: (elapsed: number, total: number) => void;
       onComplete?: () => void;
       onError?: (error: MediaPipeError) => void;
@@ -351,6 +352,7 @@ export class MediaPipeService implements IMediaPipeService {
       onProgress,
       onComplete,
       onError,
+      targetFps = PERFORMANCE_CONFIG.TARGET_FPS,
     } = options;
 
     // Limit maximum tracking duration for memory management
@@ -359,6 +361,9 @@ export class MediaPipeService implements IMediaPipeService {
     let isTracking = true;
     let animationFrameId: number;
     const startTime = performance.now();
+    const scheduler = new FrameRateController(targetFps);
+    let lastVideoTime = -1;
+    performanceMonitor.start();
 
     const trackFrame = (currentTime: number) => {
       if (!isTracking) return;
@@ -368,12 +373,23 @@ export class MediaPipeService implements IMediaPipeService {
         const elapsed = currentTime - startTime;
         if (elapsed >= maxDuration) {
           isTracking = false;
+          performanceMonitor.stop();
           onComplete?.();
           return;
         }
 
-        // Detect pose on every animation frame — no artificial throttling
+        const isNewVideoFrame = video.currentTime !== lastVideoTime;
+        if (!isNewVideoFrame || !scheduler.shouldProcessFrame(currentTime)) {
+          performanceMonitor.recordFrame(0, true);
+          onProgress?.(elapsed, maxDuration);
+          animationFrameId = requestAnimationFrame(trackFrame);
+          return;
+        }
+
+        lastVideoTime = video.currentTime;
+        const inferenceStart = performance.now();
         const result = this.poseLandmarker!.detectForVideo(video, currentTime);
+        performanceMonitor.recordFrame(performance.now() - inferenceStart);
 
         if (result && result.landmarks && result.landmarks.length > 0) {
           const landmarks = this.extractLandmarks(result);
@@ -389,6 +405,7 @@ export class MediaPipeService implements IMediaPipeService {
         }
       } catch (error) {
         isTracking = false;
+        performanceMonitor.stop();
         const mediaError =
           error instanceof MediaPipeError
             ? error
@@ -406,6 +423,7 @@ export class MediaPipeService implements IMediaPipeService {
     // Return stop function
     return () => {
       isTracking = false;
+      performanceMonitor.stop();
       if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
       }

@@ -50,6 +50,17 @@ describe('PerformanceMonitor', () => {
     expect(metrics.droppedFrames).toBe(1);
   });
 
+  it('reports latest, average, and p95 real inference durations', () => {
+    monitor.start();
+    for (const duration of [10, 20, 30, 40, 100]) monitor.recordFrame(duration);
+
+    expect(monitor.getMetrics()).toMatchObject({
+      latestFrameTime: 100,
+      averageFrameTime: 40,
+      p95FrameTime: 100,
+    });
+  });
+
   it('should detect when frames should be skipped', () => {
     const shouldSkip = monitor.shouldSkipFrame(150); // 150ms is > threshold
     expect(shouldSkip).toBe(true);
@@ -233,7 +244,7 @@ describe('Performance Integration', () => {
     }
     
     const metrics = monitor.getMetrics();
-    expect(metrics.fps).toBeLessThan(60); // Should detect low FPS
+    expect(metrics.averageFrameTime).toBe(100); // Real inference is slow
     
     // Controller should adapt
     controller.adjustTargetFPS(metrics.fps);

@@ -23,9 +23,10 @@ export const MEDIAPIPE_CONFIG = {
 // Performance optimization constants
 export const PERFORMANCE_CONFIG = {
   // Frame rate optimization
-  TARGET_FPS: 30,
-  MIN_FPS: 15,
+  TARGET_FPS: 15,
+  MIN_FPS: 5,
   MAX_FPS: 60,
+  UI_FPS: 10,
   FRAME_SKIP_THRESHOLD: 100, // Skip frame if processing takes longer than 100ms
   
   // Memory management

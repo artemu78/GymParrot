@@ -15,6 +15,18 @@ vi.mock("../../services", () => ({
   mediaPipeService: {
     initializePoseLandmarker: vi.fn(),
     startMovementTracking: vi.fn(),
+    getPerformanceMetrics: vi.fn(() => ({
+      monitor: {
+        fps: 0,
+        latestFrameTime: 0,
+        averageFrameTime: 0,
+        p95FrameTime: 0,
+        memoryUsage: 0,
+        droppedFrames: 0,
+        totalFrames: 0,
+        timestamp: 0,
+      },
+    })),
   },
   webcamService: {
     startVideoStream: vi.fn(),

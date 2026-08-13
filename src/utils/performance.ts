@@ -6,7 +6,9 @@ import { PERFORMANCE_CONFIG, PERFORMANCE_THRESHOLDS } from './constants';
 
 export interface PerformanceMetrics {
   fps: number;
+  latestFrameTime: number;
   averageFrameTime: number;
+  p95FrameTime: number;
   memoryUsage: number;
   droppedFrames: number;
   totalFrames: number;
@@ -26,6 +28,8 @@ export class PerformanceMonitor {
   private frameTimes: number[] = [];
   private droppedFrames = 0;
   private totalFrames = 0;
+  private completedFrames = 0;
+  private firstFrameAt = 0;
   private lastLogTime = 0;
   private isMonitoring = false;
 
@@ -37,7 +41,9 @@ export class PerformanceMonitor {
     this.frameTimes = [];
     this.droppedFrames = 0;
     this.totalFrames = 0;
+    this.completedFrames = 0;
     this.lastLogTime = performance.now();
+    this.firstFrameAt = this.lastLogTime;
   }
 
   /**
@@ -60,6 +66,8 @@ export class PerformanceMonitor {
       return;
     }
 
+    this.completedFrames++;
+
     // Keep only recent frame times for FPS calculation
     this.frameTimes.push(processingTime);
     if (this.frameTimes.length > PERFORMANCE_CONFIG.FPS_SAMPLE_SIZE) {
@@ -81,12 +89,16 @@ export class PerformanceMonitor {
     const averageFrameTime = this.frameTimes.length > 0 
       ? this.frameTimes.reduce((sum, time) => sum + time, 0) / this.frameTimes.length
       : 0;
-
-    const fps = averageFrameTime > 0 ? 1000 / averageFrameTime : 0;
+    const sorted = [...this.frameTimes].sort((a, b) => a - b);
+    const p95Index = Math.max(0, Math.ceil(sorted.length * 0.95) - 1);
+    const elapsed = performance.now() - this.firstFrameAt;
+    const fps = elapsed > 0 ? (this.completedFrames * 1000) / elapsed : 0;
 
     return {
       fps,
+      latestFrameTime: this.frameTimes.at(-1) ?? 0,
       averageFrameTime,
+      p95FrameTime: sorted[p95Index] ?? 0,
       memoryUsage: this.getMemoryUsage(),
       droppedFrames: this.droppedFrames,
       totalFrames: this.totalFrames,

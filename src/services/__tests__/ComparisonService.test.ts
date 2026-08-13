@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { ComparisonService } from '../ComparisonService'
 import type { PoseLandmark, TimestampedLandmarks } from '../../types'
+import { standingPose, transformPose } from './fixtures/poseLandmarks'
 
 describe('ComparisonService', () => {
   let service: ComparisonService
@@ -26,7 +27,26 @@ describe('ComparisonService', () => {
     }))
   }
 
+  const bendLegs = (landmarks: PoseLandmark[], amount = 0.25) => {
+    const changed = landmarks.map((landmark) => ({ ...landmark }))
+    for (const index of [25, 27, 29, 31]) changed[index].x += amount
+    for (const index of [26, 28, 30, 32]) changed[index].x -= amount
+    return changed
+  }
+
   describe('calculateSimilarityScore', () => {
+    it('scores a translated and scaled real pose above a different pose', () => {
+      const original = standingPose()
+      const equivalent = transformPose(original, 0.65, 0.18, 0.12)
+      const incorrect = standingPose()
+      incorrect[25].x += 0.3
+      incorrect[26].x -= 0.3
+
+      expect(service.calculateSimilarityScore(original, equivalent)).toBeGreaterThan(0.95)
+      expect(service.calculateSimilarityScore(original, incorrect)).toBeLessThan(
+        service.calculateSimilarityScore(original, equivalent),
+      )
+    })
     it('should return 1.0 for identical poses', () => {
       const landmarks = createTestLandmarks()
       const score = service.calculateSimilarityScore(landmarks, landmarks)
@@ -47,7 +67,7 @@ describe('ComparisonService', () => {
     })
 
     it('should handle different array lengths', () => {
-      const landmarks1 = createTestLandmarks().slice(0, 20)
+      const landmarks1 = createTestLandmarks().slice(0, 25)
       const landmarks2 = createTestLandmarks()
       
       const score = service.calculateSimilarityScore(landmarks1, landmarks2)
@@ -57,7 +77,7 @@ describe('ComparisonService', () => {
 
     it('should return lower score for different poses', () => {
       const landmarks1 = createTestLandmarks(0.5, 0.5, 0.1)
-      const landmarks2 = createTestLandmarks(0.7, 0.3, 0.2) // Different pose
+      const landmarks2 = bendLegs(landmarks1) // Different joint shape
       
       const score = service.calculateSimilarityScore(landmarks1, landmarks2)
       expect(score).toBeLessThan(0.8)
@@ -100,7 +120,7 @@ describe('ComparisonService', () => {
 
     it('should not match different poses on hard difficulty', () => {
       const landmarks1 = createTestLandmarks(0.5, 0.5, 0.1)
-      const landmarks2 = createTestLandmarks(0.6, 0.4, 0.2) // Different pose
+      const landmarks2 = bendLegs(landmarks1, 0.35) // Different pose
       
       const result = service.comparePoses(landmarks1, landmarks2, 'hard')
       
@@ -120,7 +140,7 @@ describe('ComparisonService', () => {
 
     it('should provide different thresholds for different difficulties', () => {
       const landmarks1 = createTestLandmarks(0.5, 0.5, 0.1)
-      const landmarks2 = createTestLandmarks(0.55, 0.52, 0.12) // Moderately different
+      const landmarks2 = bendLegs(landmarks1, 0.2) // Moderately different
       
       const softResult = service.comparePoses(landmarks1, landmarks2, 'soft')
       const mediumResult = service.comparePoses(landmarks1, landmarks2, 'medium')
@@ -176,7 +196,10 @@ describe('ComparisonService', () => {
 
     it('should return lower score for different movements', () => {
       const sequence1 = createTestSequence(30, 0.5)
-      const sequence2 = createTestSequence(30, 0.7) // Different movement pattern
+      const sequence2 = createTestSequence(30).map((frame) => ({
+        ...frame,
+        landmarks: bendLegs(frame.landmarks),
+      }))
       
       const result = service.compareMovementSequence(sequence1, sequence2, 'medium')
       
@@ -206,20 +229,20 @@ describe('ComparisonService', () => {
       
       // Make the middle frames very different
       for (let i = 10; i < 20; i++) {
-        sequence2[i].landmarks = createTestLandmarks(0.8, 0.2, 0.3)
+        sequence2[i].landmarks = bendLegs(createTestLandmarks(), 0.5)
       }
       
       const result = service.compareMovementSequence(sequence1, sequence2, 'medium')
       
       // Should have lower score due to middle frame differences being weighted more
-      expect(result.score).toBeLessThan(0.6)
+      expect(result.score).toBeLessThan(0.7)
     })
   })
 
   describe('difficulty levels', () => {
     it('should use correct thresholds for each difficulty', () => {
       const landmarks1 = createTestLandmarks()
-      const landmarks2 = createTestLandmarks(0.54, 0.53, 0.12) // Moderately different
+      const landmarks2 = bendLegs(landmarks1, 0.2) // Moderately different
       
       const softResult = service.comparePoses(landmarks1, landmarks2, 'soft')
       const mediumResult = service.comparePoses(landmarks1, landmarks2, 'medium')

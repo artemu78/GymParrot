@@ -6,6 +6,7 @@ import type {
   DifficultyLevel,
 } from "../types";
 import { DIFFICULTY_THRESHOLDS } from "../utils/constants";
+import { normalizePose } from "./poseFeatures";
 
 export class ComparisonService implements IComparisonService {
   comparePoses(
@@ -152,14 +153,17 @@ export class ComparisonService implements IComparisonService {
 
   calculateSimilarityScore(
     pose1: PoseLandmark[],
-    pose2: PoseLandmark[]
+    pose2: PoseLandmark[],
+    mirrored = false,
   ): number {
     if (!pose1 || !pose2 || pose1.length === 0 || pose2.length === 0) {
       return 0;
     }
 
-    // Use the minimum length to avoid index errors
-    const minLength = Math.min(pose1.length, pose2.length);
+    const first = normalizePose(pose1);
+    const second = normalizePose(pose2, mirrored);
+    if (first.warning || second.warning) return 0;
+    const minLength = Math.min(first.landmarks.length, second.landmarks.length);
     let totalDistance = 0;
     let validComparisons = 0;
 
@@ -182,8 +186,8 @@ export class ComparisonService implements IComparisonService {
 
     // Calculate weighted distance
     for (let i = 0; i < minLength; i++) {
-      const landmark1 = pose1[i];
-      const landmark2 = pose2[i];
+      const landmark1 = first.landmarks[i];
+      const landmark2 = second.landmarks[i];
 
       // Validate landmark data
       if (
@@ -206,13 +210,6 @@ export class ComparisonService implements IComparisonService {
       }
 
       // Skip if either landmark has very low visibility
-      if (
-        (landmark1.visibility || 1) < 0.3 ||
-        (landmark2.visibility || 1) < 0.3
-      ) {
-        continue;
-      }
-
       // Calculate Euclidean distance in 3D space
       const dx = landmark1.x - landmark2.x;
       const dy = landmark1.y - landmark2.y;
@@ -236,7 +233,7 @@ export class ComparisonService implements IComparisonService {
 
     // Convert distance to similarity score (0-1 range)
     const averageDistance = totalDistance / validComparisons;
-    const maxExpectedDistance = 0.5; // Reasonable maximum distance for pose similarity
+    const maxExpectedDistance = 1.5;
     const similarity = Math.max(0, 1 - averageDistance / maxExpectedDistance);
 
     return Math.min(1, similarity);

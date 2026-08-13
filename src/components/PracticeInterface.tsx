@@ -8,6 +8,8 @@ import {
   activityService,
 } from "../services";
 import { MovementVideoRecorder } from "../services/MovementVideoRecorder";
+import PerformancePanel from "./PerformancePanel";
+import { MEDIAPIPE_CONFIG } from "../utils/constants";
 import type {
   PoseLandmark,
   TimestampedLandmarks,
@@ -130,6 +132,7 @@ interface PracticeInterfaceProps {
   onError?: (error: string) => void;
   onDifficultyChange?: (difficulty: DifficultyLevel) => void;
   className?: string;
+  reviewRecordingEnabled?: boolean;
 }
 
 type PracticeState =
@@ -156,6 +159,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   onError,
   onDifficultyChange,
   className = "",
+  reviewRecordingEnabled = false,
 }) => {
   const [activity, setActivity] = useState<Activity | null>(null);
   const [practiceState, setPracticeState] = useState<PracticeState>("loading");
@@ -175,6 +179,8 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isTracking, setIsTracking] = useState(false);
   const [isCameraTesting, setIsCameraTesting] = useState(false);
+  const [diagnosticMetrics, setDiagnosticMetrics] = useState(() => mediaPipeService.getPerformanceMetrics().monitor);
+  const diagnosticsEnabled = new URLSearchParams(window.location.search).has("poseDiagnostics");
 
   // New states for the requested features
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -189,6 +195,16 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
   // Ref to access latest landmarks in callbacks without triggering effects
   const currentLandmarksRef = useRef<PoseLandmark[]>([]);
+  const lastUiUpdateRef = useRef(0);
+
+  const publishLandmarks = useCallback((landmarks: PoseLandmark[]) => {
+    currentLandmarksRef.current = landmarks;
+    const now = performance.now();
+    if (now - lastUiUpdateRef.current >= 100) {
+      lastUiUpdateRef.current = now;
+      setCurrentLandmarks(landmarks);
+    }
+  }, []);
 
   // Movement practice capture (for post-practice comparison)
   const movementAttemptRef = useRef<TimestampedLandmarks[]>([]);
@@ -212,6 +228,14 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   useEffect(() => {
     setDifficulty(initialDifficulty);
   }, [initialDifficulty]);
+
+  useEffect(() => {
+    if (!diagnosticsEnabled) return;
+    const timer = window.setInterval(() => {
+      setDiagnosticMetrics(mediaPipeService.getPerformanceMetrics().monitor);
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [diagnosticsEnabled]);
 
   // Notify parent of difficulty change
   const handleDifficultyChange = (newDifficulty: DifficultyLevel) => {
@@ -434,9 +458,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
         const stopTracking = await mediaPipeService.startMovementTracking(
           videoRef.current,
-          (landmarks) => {
-            setCurrentLandmarks(landmarks);
-          },
+          publishLandmarks,
           {
             duration: Infinity,
             onError: (error) => {
@@ -458,7 +480,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
         setTraineeRecordingUrl(null);
 
         // Capture trainee video (for side-by-side comparison review).
-        if (MovementVideoRecorder.isSupported() && videoRef.current) {
+        if (reviewRecordingEnabled && MovementVideoRecorder.isSupported() && videoRef.current) {
           try {
             const recorder = new MovementVideoRecorder(videoRef.current, {
               frameRate: 30,
@@ -474,7 +496,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
         const stopTracking = await mediaPipeService.startMovementTracking(
           videoRef.current,
           (landmarks, timestamp) => {
-            setCurrentLandmarks(landmarks);
+            publishLandmarks(landmarks);
             movementAttemptRef.current.push({ timestamp, landmarks });
             if (traineeRecorderRef.current) {
               traineeRecorderRef.current.pushLandmarks(landmarks);
@@ -583,9 +605,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
       const stopTracking = await mediaPipeService.startMovementTracking(
         video,
-        (landmarks) => {
-          setCurrentLandmarks(landmarks);
-        },
+        publishLandmarks,
         {
           duration: Infinity,
           onError: (error) => {
@@ -602,7 +622,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       handleError(message);
       setIsCameraTesting(false);
     }
-  }, [clearError, handleError]);
+  }, [clearError, handleError, publishLandmarks]);
 
   const stopCameraTest = useCallback(() => {
     if (stopTrackingRef.current) {
@@ -845,6 +865,19 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
           {/* Result Section - Shown below both windows */}
           {practiceState === "completed" && renderResultSection()}
+
+          {diagnosticsEnabled && (
+            <PerformancePanel
+              metrics={diagnosticMetrics}
+              uiFps={10}
+              width={videoRef.current?.videoWidth ?? 0}
+              height={videoRef.current?.videoHeight ?? 0}
+              delegate={MEDIAPIPE_CONFIG.baseOptions.delegate}
+              recordingEnabled={reviewRecordingEnabled}
+              retainedFrames={movementAttemptRef.current.length}
+              retainedBytes={JSON.stringify(movementAttemptRef.current).length}
+            />
+          )}
 
           {/* Controls */}
           <div className="mt-8 flex justify-center gap-4">
