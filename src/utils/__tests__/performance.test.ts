@@ -2,14 +2,18 @@
  * Performance optimization tests
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
 import { 
   PerformanceMonitor, 
   FrameRateController, 
   MemoryManager, 
   PoseDataCompressor 
 } from '../performance';
-import { PERFORMANCE_CONFIG } from '../constants';
+import { PERFORMANCE_CONFIG, PERFORMANCE_THRESHOLDS } from '../constants';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('PerformanceMonitor', () => {
   let monitor: PerformanceMonitor;
@@ -48,6 +52,68 @@ describe('PerformanceMonitor', () => {
     const metrics = monitor.getMetrics();
     expect(metrics.totalFrames).toBe(2);
     expect(metrics.droppedFrames).toBe(1);
+  });
+
+  it('reports latest, average, and p95 real inference durations', () => {
+    monitor.start();
+    for (const duration of [10, 20, 30, 40, 100]) monitor.recordFrame(duration);
+
+    expect(monitor.getMetrics()).toMatchObject({
+      latestFrameTime: 100,
+      averageFrameTime: 40,
+      p95FrameTime: 100,
+    });
+  });
+
+  it('freezes effective FPS after monitoring stops', () => {
+    let now = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    monitor.start();
+    now = 100;
+    monitor.recordFrame(10);
+    now = 200;
+    monitor.stop();
+
+    const stoppedFps = monitor.getMetrics().fps;
+    now = 1200;
+
+    expect(monitor.getMetrics().fps).toBe(stoppedFps);
+    expect(stoppedFps).toBe(5);
+  });
+
+  it('warns only below the configured low-FPS threshold', () => {
+    let now = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    monitor.start();
+    now = PERFORMANCE_CONFIG.PERFORMANCE_LOG_INTERVAL;
+    monitor.recordFrame(10);
+
+    expect(monitor.getMetrics().fps).toBeLessThan(
+      PERFORMANCE_THRESHOLDS.LOW_FPS_WARNING,
+    );
+    expect(warn).toHaveBeenCalledWith(
+      '⚠️ Low FPS detected:',
+      expect.any(Number),
+    );
+
+    warn.mockClear();
+    now = 0;
+    monitor = new PerformanceMonitor();
+    monitor.start();
+    for (let frame = 1; frame <= 100; frame++) {
+      now = frame * 50;
+      monitor.recordFrame(10);
+    }
+
+    expect(monitor.getMetrics().fps).toBeGreaterThan(
+      PERFORMANCE_THRESHOLDS.LOW_FPS_WARNING,
+    );
+    expect(warn).not.toHaveBeenCalledWith(
+      '⚠️ Low FPS detected:',
+      expect.any(Number),
+    );
   });
 
   it('should detect when frames should be skipped', () => {
@@ -233,7 +299,7 @@ describe('Performance Integration', () => {
     }
     
     const metrics = monitor.getMetrics();
-    expect(metrics.fps).toBeLessThan(60); // Should detect low FPS
+    expect(metrics.averageFrameTime).toBe(100); // Real inference is slow
     
     // Controller should adapt
     controller.adjustTargetFPS(metrics.fps);

@@ -72,9 +72,18 @@ export interface ActivityService {
 }
 
 export interface ComparisonService {
-  comparePoses(recorded: PoseLandmark[], current: PoseLandmark[], difficulty: DifficultyLevel): ComparisonResult
+  comparePoses(
+    recorded: PoseLandmark[],
+    current: PoseLandmark[],
+    difficulty: DifficultyLevel,
+    mirrored?: boolean
+  ): ComparisonResult
   compareMovementSequence(recorded: TimestampedLandmarks[], current: TimestampedLandmarks[], difficulty: DifficultyLevel): ComparisonResult
-  calculateSimilarityScore(pose1: PoseLandmark[], pose2: PoseLandmark[]): number
+  calculateSimilarityScore(
+    pose1: PoseLandmark[],
+    pose2: PoseLandmark[],
+    mirrored?: boolean
+  ): number
 }
 
 export interface WebcamService {
