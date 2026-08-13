@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import WebcamPreview from "./WebcamPreview";
+import WebcamPreview, { WEBCAM_PREVIEW_MIRRORED } from "./WebcamPreview";
 import VideoReferencePlayer from "./VideoReferencePlayer";
 import {
   mediaPipeService,
@@ -408,7 +408,8 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
         const result = await comparisonService.comparePoses(
           activity.poseData,
           capturedLandmarks,
-          difficulty
+          difficulty,
+          WEBCAM_PREVIEW_MIRRORED
         );
         console.log("📊 Comparison result:", result);
 

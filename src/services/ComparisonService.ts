@@ -8,11 +8,14 @@ import type {
 import { DIFFICULTY_THRESHOLDS } from "../utils/constants";
 import { normalizePose } from "./poseFeatures";
 
+const MIN_VALID_LANDMARK_COVERAGE = 0.5;
+
 export class ComparisonService implements IComparisonService {
   comparePoses(
     recorded: PoseLandmark[],
     current: PoseLandmark[],
-    difficulty: DifficultyLevel
+    difficulty: DifficultyLevel,
+    mirrored = false
   ): ComparisonResult {
     try {
       // Validate inputs
@@ -35,9 +38,13 @@ export class ComparisonService implements IComparisonService {
       }
 
       const normalizedRecorded = normalizePose(recorded);
-      const normalizedCurrent = normalizePose(current);
+      const normalizedCurrent = normalizePose(current, mirrored);
+      const normalizationWarnings = [
+        normalizedRecorded.warning,
+        normalizedCurrent.warning,
+      ].filter((warning): warning is string => Boolean(warning));
       const score =
-        normalizedRecorded.warning || normalizedCurrent.warning
+        normalizationWarnings.length > 0
           ? 0
           : this.calculateNormalizedSimilarityScore(
               normalizedRecorded.landmarks,
@@ -47,12 +54,15 @@ export class ComparisonService implements IComparisonService {
       const isMatch = score >= threshold;
 
       // Generate feedback and suggestions
-      const feedback = this.generatePoseFeedback(
-        normalizedRecorded.landmarks,
-        normalizedCurrent.landmarks,
-        score,
-        threshold
-      );
+      const feedback = [
+        ...new Set(normalizationWarnings),
+        ...this.generatePoseFeedback(
+          normalizedRecorded.landmarks,
+          normalizedCurrent.landmarks,
+          score,
+          threshold
+        ),
+      ];
       const suggestions = this.generatePoseSuggestions(
         normalizedRecorded.landmarks,
         normalizedCurrent.landmarks,
@@ -183,6 +193,7 @@ export class ComparisonService implements IComparisonService {
     const minLength = Math.min(pose1.length, pose2.length);
     let totalDistance = 0;
     let validComparisons = 0;
+    let validLandmarkComparisons = 0;
 
     // Key landmarks for pose comparison (more important body parts)
     const keyLandmarkIndices = [
@@ -242,9 +253,13 @@ export class ComparisonService implements IComparisonService {
       const weight = keyLandmarkIndices.includes(i) ? 2.0 : 1.0;
       totalDistance += distance * weight;
       validComparisons += weight;
+      validLandmarkComparisons += 1;
     }
 
-    if (validComparisons === 0) {
+    const minimumValidLandmarks = Math.ceil(
+      minLength * MIN_VALID_LANDMARK_COVERAGE
+    );
+    if (validLandmarkComparisons < minimumValidLandmarks) {
       return 0;
     }
 

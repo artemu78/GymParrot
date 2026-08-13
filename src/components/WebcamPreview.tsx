@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import type { PoseLandmark } from "../types";
 
+export const WEBCAM_PREVIEW_MIRRORED = true;
+
 interface WebcamPreviewProps {
   isActive?: boolean;
   showLandmarks?: boolean;
@@ -261,7 +263,7 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
           playsInline
           muted
           style={{
-            transform: "scaleX(-1)", // Mirror the video for better UX
+            transform: WEBCAM_PREVIEW_MIRRORED ? "scaleX(-1)" : undefined,
             width: "100%",
             height: "100%",
           }}
@@ -269,7 +271,12 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
 
         {/* Pose landmarks overlay */}
         {(videoReady || forceShowVideo) && showLandmarks && landmarks.length > 0 ? (
-          <div className="absolute inset-0" style={{ transform: "scaleX(-1)" }}>
+          <div
+            className="absolute inset-0"
+            style={{
+              transform: WEBCAM_PREVIEW_MIRRORED ? "scaleX(-1)" : undefined,
+            }}
+          >
             <PoseLandmarkOverlay landmarks={landmarks} />
           </div>
         ) : null}

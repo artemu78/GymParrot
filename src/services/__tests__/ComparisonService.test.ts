@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { ComparisonService } from '../ComparisonService'
 import type { PoseLandmark, TimestampedLandmarks } from '../../types'
-import { standingPose, transformPose } from './fixtures/poseLandmarks'
+import {
+  mirrorPose,
+  standingPose,
+  transformPose,
+} from './fixtures/poseLandmarks'
 
 describe('ComparisonService', () => {
   let service: ComparisonService
@@ -72,6 +76,29 @@ describe('ComparisonService', () => {
         ]),
       )
     })
+
+    it('compares mirrored runtime poses when requested', () => {
+      const original = standingPose()
+      const mirrored = mirrorPose(original)
+
+      const result = service.comparePoses(original, mirrored, 'hard', true)
+
+      expect(result.isMatch).toBe(true)
+      expect(result.score).toBeGreaterThan(0.95)
+    })
+
+    it('rejects anchor-only poses with insufficient landmark coverage', () => {
+      const original = standingPose()
+      const anchorOnly = standingPose().map((landmark, index) => ({
+        ...landmark,
+        visibility: [11, 12, 23, 24].includes(index) ? 0.99 : 0.1,
+      }))
+
+      const result = service.comparePoses(original, anchorOnly, 'soft')
+
+      expect(result.isMatch).toBe(false)
+      expect(result.score).toBe(0)
+    })
     it('should return 1.0 for identical poses', () => {
       const landmarks = createTestLandmarks()
       const score = service.calculateSimilarityScore(landmarks, landmarks)
@@ -123,6 +150,17 @@ describe('ComparisonService', () => {
   })
 
   describe('comparePoses', () => {
+    it('surfaces normalization warnings in feedback', () => {
+      const recorded = standingPose()
+      const current = standingPose()
+      current[23].visibility = 0.1
+
+      const result = service.comparePoses(recorded, current, 'soft')
+
+      expect(result.score).toBe(0)
+      expect(result.feedback[0]).toMatch(/cannot evaluate/i)
+    })
+
     it('should return match for identical poses on soft difficulty', () => {
       const landmarks = createTestLandmarks()
       const result = service.comparePoses(landmarks, landmarks, 'soft')

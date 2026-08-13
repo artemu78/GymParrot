@@ -48,6 +48,7 @@ vi.mock("../../services", () => ({
 
 // Mock WebcamPreview component
 vi.mock("../WebcamPreview", () => ({
+  WEBCAM_PREVIEW_MIRRORED: true,
   default: React.forwardRef<HTMLVideoElement, any>((props, ref) => {
     React.useEffect(() => {
       // Simulate video ready event
@@ -296,7 +297,12 @@ describe("PracticeInterface", () => {
           }
 
           // Verify comparison call and overlay
-          expect(comparisonService.comparePoses).toHaveBeenCalled();
+          expect(comparisonService.comparePoses).toHaveBeenCalledWith(
+            mockPoseActivity.poseData,
+            [],
+            "medium",
+            true
+          );
           expect(screen.getByText("Excellent!")).toBeInTheDocument();
 
           // Target pose image should still be visible alongside the result
