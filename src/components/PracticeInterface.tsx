@@ -75,7 +75,7 @@ const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
     <svg
       className="absolute inset-0 pointer-events-none w-full h-full"
       viewBox="0 0 1 1"
-      preserveAspectRatio="xMidYMid slice"
+      preserveAspectRatio="xMidYMid meet"
     >
       {/* Draw connections */}
       {connections.map(([startIdx, endIdx], index) => {

@@ -133,6 +133,47 @@ describe("WebcamPreview", () => {
     const video = container.querySelector("video");
     expect(video?.className).toContain("w-full");
     expect(video?.className).toContain("h-full");
-    expect(video?.className).toContain("object-cover");
+    expect(video?.className).toContain("object-contain");
+  });
+
+  it("should not apply inline dimensions when width/height are omitted", () => {
+    const { container } = render(<WebcamPreview />);
+
+    const previewContainer = container.firstChild as HTMLElement;
+    // Without explicit dimensions the container must NOT have a fixed pixel size
+    // so that a Tailwind w-full/h-full parent can control the layout.
+    expect(previewContainer.style.width).toBe("");
+    expect(previewContainer.style.height).toBe("");
+  });
+
+  it("should apply inline dimensions only when width and height are explicitly provided", () => {
+    const { container } = render(<WebcamPreview width={640} height={480} />);
+
+    const previewContainer = container.firstChild as HTMLElement;
+    expect(previewContainer.style.width).toBe("640px");
+    expect(previewContainer.style.height).toBe("480px");
+  });
+
+  it("should use object-contain so the full camera frame is always visible", () => {
+    const { container } = render(<WebcamPreview />);
+
+    const video = container.querySelector("video");
+    expect(video?.className).toContain("object-contain");
+    expect(video?.className).not.toContain("object-cover");
+  });
+
+  it("landmark overlay SVG should use meet preserveAspectRatio to match object-contain", () => {
+    const { container } = render(
+      <WebcamPreview
+        showLandmarks={true}
+        landmarks={mockLandmarks}
+        isActive={true}
+        forceShowVideo={true}
+      />
+    );
+
+    const svg = container.querySelector("svg");
+    expect(svg).toBeTruthy();
+    expect(svg?.getAttribute("preserveAspectRatio")).toBe("xMidYMid meet");
   });
 });
