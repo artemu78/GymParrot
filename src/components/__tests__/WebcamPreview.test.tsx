@@ -32,6 +32,22 @@ describe("WebcamPreview", () => {
     expect(previewContainer.style.height).toBe("600px");
   });
 
+  it("should apply a supplied width when height is omitted", () => {
+    const { container } = render(<WebcamPreview width={800} />);
+
+    const previewContainer = container.firstChild as HTMLElement;
+    expect(previewContainer.style.width).toBe("800px");
+    expect(previewContainer.style.height).toBe("");
+  });
+
+  it("should apply a supplied height when width is omitted", () => {
+    const { container } = render(<WebcamPreview height={600} />);
+
+    const previewContainer = container.firstChild as HTMLElement;
+    expect(previewContainer.style.width).toBe("");
+    expect(previewContainer.style.height).toBe("600px");
+  });
+
   it("should apply custom className", () => {
     const { container } = render(<WebcamPreview className="custom-class" />);
 
@@ -175,5 +191,26 @@ describe("WebcamPreview", () => {
     const svg = container.querySelector("svg");
     expect(svg).toBeTruthy();
     expect(svg?.getAttribute("preserveAspectRatio")).toBe("xMidYMid meet");
+  });
+
+  it("should map landmarks through the video's actual aspect ratio", () => {
+    const { container } = render(
+      <WebcamPreview
+        showLandmarks
+        landmarks={mockLandmarks}
+        isActive
+      />
+    );
+    const video = container.querySelector("video") as HTMLVideoElement;
+    Object.defineProperty(video, "videoWidth", { value: 1280, configurable: true });
+    Object.defineProperty(video, "videoHeight", { value: 720, configurable: true });
+
+    fireEvent.loadedData(video);
+
+    const svg = container.querySelector("svg");
+    const firstCircle = container.querySelector("circle");
+    expect(svg?.getAttribute("viewBox")).toBe("0 0 1280 720");
+    expect(firstCircle?.getAttribute("cx")).toBe("640");
+    expect(firstCircle?.getAttribute("cy")).toBe("216");
   });
 });

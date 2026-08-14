@@ -184,6 +184,31 @@ describe("PracticeInterface", () => {
         ?.parentElement;
       expect(landmarkOverlay?.style.transform).toContain("scaleX(-1)");
     });
+
+    it("should align target landmarks to the target image aspect ratio", async () => {
+      vi.mocked(activityService.getActivityById).mockResolvedValue(
+        mockPoseActivity
+      );
+
+      render(<PracticeInterface activityId="pose-1" />);
+
+      const targetImage = await screen.findByAltText("Target Pose");
+      Object.defineProperty(targetImage, "naturalWidth", {
+        value: 1280,
+        configurable: true,
+      });
+      Object.defineProperty(targetImage, "naturalHeight", {
+        value: 720,
+        configurable: true,
+      });
+      fireEvent.load(targetImage);
+
+      const overlay = targetImage.parentElement?.querySelector("svg");
+      const firstLandmark = overlay?.querySelector("circle");
+      expect(overlay?.getAttribute("viewBox")).toBe("0 0 1280 720");
+      expect(firstLandmark?.getAttribute("cx")).toBe("640");
+      expect(firstLandmark?.getAttribute("cy")).toBe("360");
+    });
   });
 
   describe("Difficulty Selector", () => {

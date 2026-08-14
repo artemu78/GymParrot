@@ -53,6 +53,7 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
   // Delete confirmation state
   const [activityToDelete, setActivityToDelete] = useState<Activity | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   // Refs for intersection observer (lazy loading)
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -191,21 +192,23 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
     applyFilters();
   }, [applyFilters]);
 
-  const handleDeleteRequest = useCallback((activity: Activity) => {
+  const handleDeleteRequest = useCallback((activity: Activity, trigger: HTMLButtonElement) => {
+    deleteTriggerRef.current = trigger;
     setActivityToDelete(activity);
   }, []);
 
   const handleDeleteCancel = useCallback(() => {
+    if (isDeleting) return;
     setActivityToDelete(null);
-  }, []);
+  }, [isDeleting]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!activityToDelete) return;
     setIsDeleting(true);
     try {
       await activityService.deleteActivity(activityToDelete.id);
-      // Remove from local state immediately so the UI updates without a refetch
-      setActivities((prev) => prev.filter((a) => a.id !== activityToDelete.id));
+      // Reset offset pagination because deletion shifts every later page.
+      await loadActivities(true);
       setActivityToDelete(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to delete activity";
@@ -214,7 +217,7 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
     } finally {
       setIsDeleting(false);
     }
-  }, [activityToDelete, handleError]);
+  }, [activityToDelete, handleError, loadActivities]);
 
   const handleActivitySelect = useCallback(
     (activity: Activity) => {
@@ -478,6 +481,7 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
         onConfirm={handleDeleteConfirm}
         onCancel={handleDeleteCancel}
         isDeleting={isDeleting}
+        returnFocusTo={deleteTriggerRef.current}
       />
     )}
     </>

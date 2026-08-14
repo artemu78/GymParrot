@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect } from "react";
 import { MoreVertical, Trash2 } from "lucide-react";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Activity } from "../../types";
 
 interface ActivityCardProps {
@@ -8,7 +9,7 @@ interface ActivityCardProps {
   /** Called when the user clicks "Practice Activity" */
   onSelect: (activity: Activity) => void;
   /** Called when the user confirms deletion from the three-dots menu */
-  onDelete?: (activity: Activity) => void;
+  onDelete?: (activity: Activity, trigger: HTMLButtonElement) => void;
 }
 
 export const ActivityCard: React.FC<ActivityCardProps> = ({
@@ -18,6 +19,7 @@ export const ActivityCard: React.FC<ActivityCardProps> = ({
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -46,7 +48,9 @@ export const ActivityCard: React.FC<ActivityCardProps> = ({
 
   const handleDeleteClick = () => {
     setMenuOpen(false);
-    onDelete?.(activity);
+    if (menuButtonRef.current) {
+      onDelete?.(activity, menuButtonRef.current);
+    }
   };
 
   return (
@@ -123,6 +127,8 @@ export const ActivityCard: React.FC<ActivityCardProps> = ({
           {onDelete && (
             <div className="relative flex-shrink-0" ref={menuRef}>
               <button
+                type="button"
+                ref={menuButtonRef}
                 onClick={() => setMenuOpen((prev) => !prev)}
                 className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 aria-label="More options"
@@ -138,6 +144,7 @@ export const ActivityCard: React.FC<ActivityCardProps> = ({
                   role="menu"
                 >
                   <button
+                    type="button"
                     role="menuitem"
                     onClick={handleDeleteClick}
                     className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-md"
@@ -158,6 +165,7 @@ export const ActivityCard: React.FC<ActivityCardProps> = ({
 
         {/* Action Button */}
         <button
+          type="button"
           onClick={() => onSelect(activity)}
           className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors duration-200 font-medium"
         >
