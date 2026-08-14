@@ -4,6 +4,7 @@ import type { Activity, ActivityType } from "../types";
 import { ActivityCard } from "./activity-browser/ActivityCard";
 import { EmptyState } from "./activity-browser/EmptyState";
 import { LoadingState } from "./activity-browser/LoadingState";
+import DeleteConfirmDialog from "./activity-browser/DeleteConfirmDialog";
 import { PERFORMANCE_CONFIG } from "../utils/constants";
 
 interface ActivityBrowserProps {
@@ -48,6 +49,11 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
     hasMore: true,
     isLoadingMore: false,
   });
+
+  // Delete confirmation state
+  const [activityToDelete, setActivityToDelete] = useState<Activity | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   // Refs for intersection observer (lazy loading)
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -186,6 +192,33 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
     applyFilters();
   }, [applyFilters]);
 
+  const handleDeleteRequest = useCallback((activity: Activity, trigger: HTMLButtonElement) => {
+    deleteTriggerRef.current = trigger;
+    setActivityToDelete(activity);
+  }, []);
+
+  const handleDeleteCancel = useCallback(() => {
+    if (isDeleting) return;
+    setActivityToDelete(null);
+  }, [isDeleting]);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!activityToDelete) return;
+    setIsDeleting(true);
+    try {
+      await activityService.deleteActivity(activityToDelete.id);
+      // Reset offset pagination because deletion shifts every later page.
+      await loadActivities(true);
+      setActivityToDelete(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to delete activity";
+      handleError(message);
+      setActivityToDelete(null);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [activityToDelete, handleError, loadActivities]);
+
   const handleActivitySelect = useCallback(
     (activity: Activity) => {
       onActivitySelect?.(activity);
@@ -207,6 +240,7 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
     filters.type !== "all" || filters.search.trim().length > 0;
 
   return (
+    <>
     <div className={`max-w-7xl mx-auto p-6 ${className}`}>
       <div className="bg-white rounded-lg shadow-lg overflow-hidden">
         {/* Header */}
@@ -404,6 +438,7 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
                   key={activity.id}
                   activity={activity}
                   onSelect={handleActivitySelect}
+                  onDelete={handleDeleteRequest}
                 />
               ))}
           </div>
@@ -438,6 +473,18 @@ const ActivityBrowser: React.FC<ActivityBrowserProps> = ({
         </div>
       </div>
     </div>
+
+    {/* Delete confirmation dialog */}
+    {activityToDelete && (
+      <DeleteConfirmDialog
+        activityName={activityToDelete.name}
+        onConfirm={handleDeleteConfirm}
+        onCancel={handleDeleteCancel}
+        isDeleting={isDeleting}
+        returnFocusTo={deleteTriggerRef.current}
+      />
+    )}
+    </>
   );
 };
 

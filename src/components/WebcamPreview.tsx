@@ -12,7 +12,9 @@ interface WebcamPreviewProps {
   onVideoReady?: (video: HTMLVideoElement) => void;
   onError?: (error: string) => void;
   className?: string;
+  /** Explicit pixel width. When omitted the container sizes itself via CSS (e.g. Tailwind w-full/h-full). */
   width?: number;
+  /** Explicit pixel height. When omitted the container sizes itself via CSS. */
   height?: number;
   forceShowVideo?: boolean; // Force show video even if not detected as ready
 }
@@ -46,10 +48,14 @@ const RecordingIndicator: React.FC<RecordingIndicatorProps> = ({
 
 interface PoseLandmarkOverlayProps {
   landmarks: PoseLandmark[];
+  sourceWidth: number;
+  sourceHeight: number;
 }
 
 const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
   landmarks,
+  sourceWidth,
+  sourceHeight,
 }) => {
   if (!landmarks || landmarks.length === 0) {
     return null;
@@ -96,8 +102,8 @@ const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
   return (
     <svg
       className="absolute inset-0 pointer-events-none w-full h-full"
-      viewBox="0 0 1 1"
-      preserveAspectRatio="xMidYMid slice"
+      viewBox={`0 0 ${sourceWidth} ${sourceHeight}`}
+      preserveAspectRatio="xMidYMid meet"
     >
       {/* Draw connections */}
       {connections.map(([startIdx, endIdx], index) => {
@@ -116,12 +122,12 @@ const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
         return (
           <line
             key={index}
-            x1={startLandmark.x}
-            y1={startLandmark.y}
-            x2={endLandmark.x}
-            y2={endLandmark.y}
+            x1={startLandmark.x * sourceWidth}
+            y1={startLandmark.y * sourceHeight}
+            x2={endLandmark.x * sourceWidth}
+            y2={endLandmark.y * sourceHeight}
             stroke="#00ff00"
-            strokeWidth="0.003"
+            strokeWidth={Math.min(sourceWidth, sourceHeight) * 0.003}
             opacity="0.8"
           />
         );
@@ -134,9 +140,9 @@ const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
         return (
           <circle
             key={index}
-            cx={landmark.x}
-            cy={landmark.y}
-            r="0.005"
+            cx={landmark.x * sourceWidth}
+            cy={landmark.y * sourceHeight}
+            r={Math.min(sourceWidth, sourceHeight) * 0.005}
             fill="#ff0000"
             opacity="0.9"
           />
@@ -157,8 +163,8 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
       onVideoReady,
       onError,
       className = "",
-      width = 640,
-      height = 480,
+      width,
+      height,
       forceShowVideo = false,
     },
     ref
@@ -166,6 +172,7 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
     const videoRef = useRef<HTMLVideoElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [videoReady, setVideoReady] = useState(false);
+    const [videoDimensions, setVideoDimensions] = useState<{ width: number; height: number } | null>(null);
 
     // Combine internal ref with forwarded ref
     const combinedRef = useCallback(
@@ -183,6 +190,9 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
     const handleVideoReady = useCallback(() => {
       const video = videoRef.current;
       if (!video) return;
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        setVideoDimensions({ width: video.videoWidth, height: video.videoHeight });
+      }
       setVideoReady(true);
       onVideoReady?.(video);
     }, [onVideoReady]);
@@ -253,19 +263,24 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
       <div
         ref={containerRef}
         className={`relative bg-gray-900 rounded-lg overflow-hidden ${className}`}
-        style={width && height ? { width, height } : undefined}
+        style={
+          width !== undefined || height !== undefined
+            ? {
+                ...(width !== undefined ? { width } : {}),
+                ...(height !== undefined ? { height } : {}),
+              }
+            : undefined
+        }
       >
         {/* Video element */}
         <video
           ref={combinedRef}
-          className="w-full h-full object-cover"
+          className="w-full h-full object-contain"
           autoPlay
           playsInline
           muted
           style={{
             transform: WEBCAM_PREVIEW_MIRRORED ? "scaleX(-1)" : undefined,
-            width: "100%",
-            height: "100%",
           }}
         />
 
@@ -277,7 +292,11 @@ const WebcamPreview = React.forwardRef<HTMLVideoElement, WebcamPreviewProps>(
               transform: WEBCAM_PREVIEW_MIRRORED ? "scaleX(-1)" : undefined,
             }}
           >
-            <PoseLandmarkOverlay landmarks={landmarks} />
+            <PoseLandmarkOverlay
+              landmarks={landmarks}
+              sourceWidth={videoDimensions?.width ?? width ?? 1}
+              sourceHeight={videoDimensions?.height ?? height ?? 1}
+            />
           </div>
         ) : null}
 

@@ -24,10 +24,14 @@ import type {
  */
 interface PoseLandmarkOverlayProps {
   landmarks: PoseLandmark[];
+  sourceWidth: number;
+  sourceHeight: number;
 }
 
 const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
   landmarks,
+  sourceWidth,
+  sourceHeight,
 }) => {
   if (!landmarks || landmarks.length === 0) {
     return null;
@@ -74,8 +78,8 @@ const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
   return (
     <svg
       className="absolute inset-0 pointer-events-none w-full h-full"
-      viewBox="0 0 1 1"
-      preserveAspectRatio="xMidYMid slice"
+      viewBox={`0 0 ${sourceWidth} ${sourceHeight}`}
+      preserveAspectRatio="xMidYMid meet"
     >
       {/* Draw connections */}
       {connections.map(([startIdx, endIdx], index) => {
@@ -94,12 +98,12 @@ const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
         return (
           <line
             key={index}
-            x1={startLandmark.x}
-            y1={startLandmark.y}
-            x2={endLandmark.x}
-            y2={endLandmark.y}
+            x1={startLandmark.x * sourceWidth}
+            y1={startLandmark.y * sourceHeight}
+            x2={endLandmark.x * sourceWidth}
+            y2={endLandmark.y * sourceHeight}
             stroke="#00ff00"
-            strokeWidth="0.003"
+            strokeWidth={Math.min(sourceWidth, sourceHeight) * 0.003}
             opacity="0.8"
           />
         );
@@ -112,15 +116,62 @@ const PoseLandmarkOverlay: React.FC<PoseLandmarkOverlayProps> = ({
         return (
           <circle
             key={index}
-            cx={landmark.x}
-            cy={landmark.y}
-            r="0.005"
+            cx={landmark.x * sourceWidth}
+            cy={landmark.y * sourceHeight}
+            r={Math.min(sourceWidth, sourceHeight) * 0.005}
             fill="#ff0000"
             opacity="0.9"
           />
         );
       })}
     </svg>
+  );
+};
+
+interface PoseImageWithOverlayProps {
+  src: string;
+  alt: string;
+  landmarks?: PoseLandmark[];
+  mirrorImage?: boolean;
+  mirrorOverlay?: boolean;
+}
+
+const PoseImageWithOverlay: React.FC<PoseImageWithOverlayProps> = ({
+  src,
+  alt,
+  landmarks = [],
+  mirrorImage = false,
+  mirrorOverlay = false,
+}) => {
+  const [dimensions, setDimensions] = useState({ width: 1, height: 1 });
+
+  return (
+    <>
+      <img
+        src={src}
+        alt={alt}
+        className="w-full h-full object-contain"
+        style={{ transform: mirrorImage ? "scaleX(-1)" : undefined }}
+        onLoad={(event) => {
+          const image = event.currentTarget;
+          if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+            setDimensions({ width: image.naturalWidth, height: image.naturalHeight });
+          }
+        }}
+      />
+      {landmarks.length > 0 ? (
+        <div
+          className="absolute inset-0"
+          style={{ transform: mirrorOverlay ? "scaleX(-1)" : undefined }}
+        >
+          <PoseLandmarkOverlay
+            landmarks={landmarks}
+            sourceWidth={dimensions.width}
+            sourceHeight={dimensions.height}
+          />
+        </div>
+      ) : null}
+    </>
   );
 };
 
@@ -813,20 +864,13 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                    {activity.type === "movement" ? (
                       <VideoReferencePlayer activity={activity} loop autoPlay />
                    ) : activity.imageData ? (
-                      <>
-                        {/* Mirror to match the selfie-view preview the trainer saw when recording */}
-                        <img
-                          src={activity.imageData}
-                          alt="Target Pose"
-                          className="w-full h-full object-contain"
-                          style={{ transform: "scaleX(-1)" }}
-                        />
-                        {activity.poseData && activity.poseData.length > 0 ? (
-                          <div className="absolute inset-0" style={{ transform: "scaleX(-1)" }}>
-                            <PoseLandmarkOverlay landmarks={activity.poseData} />
-                          </div>
-                        ) : null}
-                      </>
+                      <PoseImageWithOverlay
+                        src={activity.imageData}
+                        alt="Target Pose"
+                        landmarks={activity.poseData}
+                        mirrorImage
+                        mirrorOverlay
+                      />
                    ) : (
                       <div className="flex items-center justify-center h-full text-gray-400">
                         No image available
@@ -874,18 +918,12 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                    {/* Captured Image View (Result) */}
                    {capturedImage && (
                       <div className="absolute inset-0 z-10 bg-black">
-                         <img
+                         <PoseImageWithOverlay
                            src={capturedImage}
                            alt="Your Attempt"
-                           className="w-full h-full object-contain"
-                           // No mirror here because image is already mirrored during capture
+                           landmarks={currentLandmarks}
+                           mirrorOverlay
                          />
-                         {/* Render captured pose landmarks - mirrored to match the image */}
-                         {currentLandmarks && currentLandmarks.length > 0 && (
-                           <div className="absolute inset-0" style={{ transform: "scaleX(-1)" }}>
-                             <PoseLandmarkOverlay landmarks={currentLandmarks} />
-                           </div>
-                         )}
                       </div>
                    )}
 

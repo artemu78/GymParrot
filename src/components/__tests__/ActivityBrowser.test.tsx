@@ -8,6 +8,7 @@ import type { Activity } from "../../types";
 vi.mock("../../services", () => ({
   activityService: {
     getActivities: vi.fn(),
+    deleteActivity: vi.fn(),
   },
 }));
 
@@ -46,6 +47,7 @@ describe("ActivityBrowser", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(activityService.getActivities).mockResolvedValue(mockActivities);
+    vi.mocked(activityService.deleteActivity).mockResolvedValue(undefined);
   });
 
   it("should render header correctly", async () => {
@@ -69,6 +71,80 @@ describe("ActivityBrowser", () => {
     });
 
     expect(activityService.getActivities).toHaveBeenCalledTimes(1);
+  });
+
+  it("should focus the dialog, close it with Escape, and restore trigger focus", async () => {
+    const { container } = render(<ActivityBrowser />);
+    await waitFor(() => expect(container.textContent).toContain("Warrior Pose"));
+
+    const menuTrigger = container.querySelector('button[aria-label="More options"]') as HTMLButtonElement;
+    fireEvent.click(menuTrigger);
+    const deleteMenuItem = container.querySelector('[role="menuitem"]') as HTMLButtonElement;
+    fireEvent.click(deleteMenuItem);
+
+    const dialog = await waitFor(() => container.querySelector("dialog") as HTMLElement);
+    const cancelButton = dialog.querySelector("button:not([aria-label])") as HTMLButtonElement;
+    const confirmButton = Array.from(dialog.querySelectorAll("button")).find(
+      (button) => button.textContent === "Delete"
+    ) as HTMLButtonElement;
+    const closeButton = dialog.querySelector('button[aria-label="Close"]') as HTMLButtonElement;
+    expect(cancelButton).toHaveFocus();
+
+    closeButton.focus();
+    fireEvent.keyDown(closeButton, { key: "Tab", shiftKey: true });
+    expect(confirmButton).toHaveFocus();
+    fireEvent.keyDown(confirmButton, { key: "Tab" });
+    expect(closeButton).toHaveFocus();
+
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(container.querySelector("dialog")).toBeNull());
+    expect(menuTrigger).toHaveFocus();
+  });
+
+  it("should keep the dialog open while deletion is in progress", async () => {
+    let finishDelete!: () => void;
+    vi.mocked(activityService.deleteActivity).mockImplementation(
+      () => new Promise<void>((resolve) => { finishDelete = resolve; })
+    );
+    const { container } = render(<ActivityBrowser />);
+    await waitFor(() => expect(container.textContent).toContain("Warrior Pose"));
+
+    fireEvent.click(container.querySelector('button[aria-label="More options"]') as HTMLButtonElement);
+    fireEvent.click(container.querySelector('[role="menuitem"]') as HTMLButtonElement);
+    const dialog = container.querySelector("dialog") as HTMLElement;
+    const confirmButton = Array.from(dialog.querySelectorAll("button")).find(
+      (button) => button.textContent === "Delete"
+    ) as HTMLButtonElement;
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => expect(dialog.textContent).toContain("Deleting…"));
+    fireEvent.click(dialog);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(container.querySelector("dialog")).toBe(dialog);
+
+    finishDelete();
+    await waitFor(() => expect(container.querySelector("dialog")).toBeNull());
+  });
+
+  it("should reload the first page after deletion", async () => {
+    const remainingActivities = mockActivities.slice(1);
+    vi.mocked(activityService.getActivities)
+      .mockResolvedValueOnce(mockActivities)
+      .mockResolvedValueOnce(remainingActivities);
+    const { container } = render(<ActivityBrowser />);
+    await waitFor(() => expect(container.textContent).toContain("Warrior Pose"));
+
+    fireEvent.click(container.querySelector('button[aria-label="More options"]') as HTMLButtonElement);
+    fireEvent.click(container.querySelector('[role="menuitem"]') as HTMLButtonElement);
+    const dialog = container.querySelector("dialog") as HTMLElement;
+    const confirmButton = Array.from(dialog.querySelectorAll("button")).find(
+      (button) => button.textContent === "Delete"
+    ) as HTMLButtonElement;
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => expect(activityService.getActivities).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(container.textContent).not.toContain("Warrior Pose"));
+    expect(container.textContent).toContain("2 / 2");
   });
 
   it("should show loading state initially", () => {

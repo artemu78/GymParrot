@@ -1,15 +1,38 @@
-import React from "react";
+import { MoreVertical, Trash2 } from "lucide-react";
+import type React from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Activity } from "../../types";
 
 interface ActivityCardProps {
+  /** The activity data to display */
   activity: Activity;
+  /** Called when the user clicks "Practice Activity" */
   onSelect: (activity: Activity) => void;
+  /** Called when the user confirms deletion from the three-dots menu */
+  onDelete?: (activity: Activity, trigger: HTMLButtonElement) => void;
 }
 
 export const ActivityCard: React.FC<ActivityCardProps> = ({
   activity,
   onSelect,
+  onDelete,
 }) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
+
   const formatDuration = (duration?: number) => {
     if (!duration) return "Single pose";
     return `${Math.round(duration / 1000)}s`;
@@ -21,6 +44,13 @@ export const ActivityCard: React.FC<ActivityCardProps> = ({
       day: "numeric",
       year: "numeric",
     }).format(date);
+  };
+
+  const handleDeleteClick = () => {
+    setMenuOpen(false);
+    if (menuButtonRef.current) {
+      onDelete?.(activity, menuButtonRef.current);
+    }
   };
 
   return (
@@ -87,9 +117,46 @@ export const ActivityCard: React.FC<ActivityCardProps> = ({
 
       {/* Activity Info */}
       <div className="p-4">
-        <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2">
-          {activity.name}
-        </h3>
+        {/* Title row with three-dots menu */}
+        <div className="flex items-start justify-between mb-2 gap-2">
+          <h3 className="font-semibold text-gray-900 line-clamp-2 flex-1">
+            {activity.name}
+          </h3>
+
+          {/* Three-dots menu (only rendered when onDelete is provided) */}
+          {onDelete && (
+            <div className="relative flex-shrink-0" ref={menuRef}>
+              <button
+                type="button"
+                ref={menuButtonRef}
+                onClick={() => setMenuOpen((prev) => !prev)}
+                className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                aria-label="More options"
+                aria-haspopup="true"
+                aria-expanded={menuOpen}
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+
+              {menuOpen && (
+                <div
+                  className="absolute right-0 top-full mt-1 w-36 bg-white border border-gray-200 rounded-md shadow-lg z-10"
+                  role="menu"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={handleDeleteClick}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-md"
+                  >
+                    <Trash2 className="w-4 h-4" aria-hidden="true" />
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         <div className="flex items-center justify-between text-sm text-gray-500 mb-3">
           <span>By {activity.createdBy}</span>
@@ -98,6 +165,7 @@ export const ActivityCard: React.FC<ActivityCardProps> = ({
 
         {/* Action Button */}
         <button
+          type="button"
           onClick={() => onSelect(activity)}
           className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors duration-200 font-medium"
         >
