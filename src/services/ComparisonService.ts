@@ -6,12 +6,16 @@ import type {
   DifficultyLevel,
 } from "../types";
 import { DIFFICULTY_THRESHOLDS } from "../utils/constants";
+import { normalizePose } from "./poseFeatures";
+
+const MIN_VALID_LANDMARK_COVERAGE = 0.5;
 
 export class ComparisonService implements IComparisonService {
   comparePoses(
     recorded: PoseLandmark[],
     current: PoseLandmark[],
-    difficulty: DifficultyLevel
+    difficulty: DifficultyLevel,
+    mirrored = false
   ): ComparisonResult {
     try {
       // Validate inputs
@@ -33,21 +37,35 @@ export class ComparisonService implements IComparisonService {
         };
       }
 
-      // Calculate similarity score
-      const score = this.calculateSimilarityScore(recorded, current);
+      const normalizedRecorded = normalizePose(recorded);
+      const normalizedCurrent = normalizePose(current, mirrored);
+      const normalizationWarnings = [
+        normalizedRecorded.warning,
+        normalizedCurrent.warning,
+      ].filter((warning): warning is string => Boolean(warning));
+      const score =
+        normalizationWarnings.length > 0
+          ? 0
+          : this.calculateNormalizedSimilarityScore(
+              normalizedRecorded.landmarks,
+              normalizedCurrent.landmarks
+            );
       const threshold = DIFFICULTY_THRESHOLDS[difficulty];
       const isMatch = score >= threshold;
 
       // Generate feedback and suggestions
-      const feedback = this.generatePoseFeedback(
-        recorded,
-        current,
-        score,
-        threshold
-      );
+      const feedback = [
+        ...new Set(normalizationWarnings),
+        ...this.generatePoseFeedback(
+          normalizedRecorded.landmarks,
+          normalizedCurrent.landmarks,
+          score,
+          threshold
+        ),
+      ];
       const suggestions = this.generatePoseSuggestions(
-        recorded,
-        current,
+        normalizedRecorded.landmarks,
+        normalizedCurrent.landmarks,
         difficulty
       );
 
@@ -152,16 +170,30 @@ export class ComparisonService implements IComparisonService {
 
   calculateSimilarityScore(
     pose1: PoseLandmark[],
-    pose2: PoseLandmark[]
+    pose2: PoseLandmark[],
+    mirrored = false,
   ): number {
     if (!pose1 || !pose2 || pose1.length === 0 || pose2.length === 0) {
       return 0;
     }
 
-    // Use the minimum length to avoid index errors
+    const first = normalizePose(pose1);
+    const second = normalizePose(pose2, mirrored);
+    if (first.warning || second.warning) return 0;
+    return this.calculateNormalizedSimilarityScore(
+      first.landmarks,
+      second.landmarks
+    );
+  }
+
+  private calculateNormalizedSimilarityScore(
+    pose1: Array<PoseLandmark | null>,
+    pose2: Array<PoseLandmark | null>
+  ): number {
     const minLength = Math.min(pose1.length, pose2.length);
     let totalDistance = 0;
     let validComparisons = 0;
+    let validLandmarkComparisons = 0;
 
     // Key landmarks for pose comparison (more important body parts)
     const keyLandmarkIndices = [
@@ -206,13 +238,6 @@ export class ComparisonService implements IComparisonService {
       }
 
       // Skip if either landmark has very low visibility
-      if (
-        (landmark1.visibility || 1) < 0.3 ||
-        (landmark2.visibility || 1) < 0.3
-      ) {
-        continue;
-      }
-
       // Calculate Euclidean distance in 3D space
       const dx = landmark1.x - landmark2.x;
       const dy = landmark1.y - landmark2.y;
@@ -228,15 +253,19 @@ export class ComparisonService implements IComparisonService {
       const weight = keyLandmarkIndices.includes(i) ? 2.0 : 1.0;
       totalDistance += distance * weight;
       validComparisons += weight;
+      validLandmarkComparisons += 1;
     }
 
-    if (validComparisons === 0) {
+    const minimumValidLandmarks = Math.ceil(
+      minLength * MIN_VALID_LANDMARK_COVERAGE
+    );
+    if (validLandmarkComparisons < minimumValidLandmarks) {
       return 0;
     }
 
     // Convert distance to similarity score (0-1 range)
     const averageDistance = totalDistance / validComparisons;
-    const maxExpectedDistance = 0.5; // Reasonable maximum distance for pose similarity
+    const maxExpectedDistance = 1.5;
     const similarity = Math.max(0, 1 - averageDistance / maxExpectedDistance);
 
     return Math.min(1, similarity);
@@ -294,8 +323,8 @@ export class ComparisonService implements IComparisonService {
   }
 
   private generatePoseFeedback(
-    recorded: PoseLandmark[],
-    current: PoseLandmark[],
+    recorded: Array<PoseLandmark | null>,
+    current: Array<PoseLandmark | null>,
     score: number,
     threshold: number
   ): string[] {
@@ -341,8 +370,8 @@ export class ComparisonService implements IComparisonService {
   }
 
   private generatePoseSuggestions(
-    recorded: PoseLandmark[],
-    current: PoseLandmark[],
+    recorded: Array<PoseLandmark | null>,
+    current: Array<PoseLandmark | null>,
     difficulty: DifficultyLevel
   ): string[] {
     const suggestions: string[] = [];
@@ -414,8 +443,8 @@ export class ComparisonService implements IComparisonService {
   }
 
   private analyzeBodyPartDifferences(
-    recorded: PoseLandmark[],
-    current: PoseLandmark[]
+    recorded: Array<PoseLandmark | null>,
+    current: Array<PoseLandmark | null>
   ): string[] {
     const feedback: string[] = [];
     const minLength = Math.min(recorded.length, current.length);
@@ -438,6 +467,8 @@ export class ComparisonService implements IComparisonService {
           const landmark2 = current[index];
 
           if (
+            landmark1 &&
+            landmark2 &&
             (landmark1.visibility || 1) >= 0.5 &&
             (landmark2.visibility || 1) >= 0.5
           ) {
@@ -500,8 +531,8 @@ export class ComparisonService implements IComparisonService {
   }
 
   private findMajorDifferences(
-    recorded: PoseLandmark[],
-    current: PoseLandmark[]
+    recorded: Array<PoseLandmark | null>,
+    current: Array<PoseLandmark | null>
   ): {
     arms: boolean;
     legs: boolean;
@@ -529,6 +560,8 @@ export class ComparisonService implements IComparisonService {
           const landmark2 = current[index];
 
           if (
+            landmark1 &&
+            landmark2 &&
             (landmark1.visibility || 1) >= 0.5 &&
             (landmark2.visibility || 1) >= 0.5
           ) {

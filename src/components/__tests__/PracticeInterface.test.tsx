@@ -15,6 +15,23 @@ vi.mock("../../services", () => ({
   mediaPipeService: {
     initializePoseLandmarker: vi.fn(),
     startMovementTracking: vi.fn(),
+    getPerformanceMetrics: vi.fn(() => ({
+      monitor: {
+        fps: 0,
+        latestFrameTime: 0,
+        averageFrameTime: 0,
+        p95FrameTime: 0,
+        memoryUsage: 0,
+        droppedFrames: 0,
+        totalFrames: 0,
+        timestamp: 0,
+      },
+      memory: {
+        historySize: 0,
+        estimatedMemory: 0,
+      },
+      frameRate: 0,
+    })),
   },
   webcamService: {
     startVideoStream: vi.fn(),
@@ -31,6 +48,7 @@ vi.mock("../../services", () => ({
 
 // Mock WebcamPreview component
 vi.mock("../WebcamPreview", () => ({
+  WEBCAM_PREVIEW_MIRRORED: true,
   default: React.forwardRef<HTMLVideoElement, any>((props, ref) => {
     React.useEffect(() => {
       // Simulate video ready event
@@ -290,7 +308,12 @@ describe("PracticeInterface", () => {
           }
 
           // Verify comparison call and overlay
-          expect(comparisonService.comparePoses).toHaveBeenCalled();
+          expect(comparisonService.comparePoses).toHaveBeenCalledWith(
+            mockPoseActivity.poseData,
+            [],
+            "medium",
+            true
+          );
           expect(screen.getByText("Excellent!")).toBeInTheDocument();
 
           // Target pose image should still be visible alongside the result
@@ -462,16 +485,35 @@ describe("PracticeInterface", () => {
   });
 
   describe("Movement Activity", () => {
+      const movementSequence = [
+        { timestamp: 0, landmarks: [{ x: 0.5, y: 0.5, z: 0, visibility: 1 }] },
+        { timestamp: 500, landmarks: [{ x: 0.55, y: 0.5, z: 0, visibility: 1 }] },
+        { timestamp: 1000, landmarks: [{ x: 0.6, y: 0.5, z: 0, visibility: 1 }] },
+      ];
+
       const mockMovementActivity: Activity = {
           ...mockPoseActivity,
           id: "move-1",
           type: "movement",
-          movementData: [],
+          imageData: undefined,
+          movementData: movementSequence,
+          landmarks: movementSequence,
           duration: 5000
       };
 
       beforeEach(() => {
           vi.mocked(activityService.getActivityById).mockResolvedValue(mockMovementActivity);
+      });
+
+      it("should render movement playback instead of 'No image available'", async () => {
+          render(<PracticeInterface activityId="move-1" />);
+
+          await waitFor(() => {
+              expect(screen.getByText("Target Movement")).toBeInTheDocument();
+          });
+
+          expect(screen.getByTestId("movement-playback")).toBeInTheDocument();
+          expect(screen.queryByText("No image available")).not.toBeInTheDocument();
       });
 
       it("should handle movement practice flow", async () => {

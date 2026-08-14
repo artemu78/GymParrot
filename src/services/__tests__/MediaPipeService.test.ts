@@ -420,6 +420,36 @@ describe('MediaPipeService', () => {
       await new Promise(resolve => setTimeout(resolve, 100))
       expect(onComplete).not.toHaveBeenCalled()
     })
+
+    it('only infers for new video frames at the configured cap', async () => {
+      const callbacks: FrameRequestCallback[] = []
+      global.requestAnimationFrame = vi.fn((callback) => {
+        callbacks.push(callback)
+        return callbacks.length
+      })
+      mockPoseLandmarker.detectForVideo.mockReturnValue({
+        landmarks: [],
+        worldLandmarks: [],
+        close: vi.fn(),
+      })
+
+      const stop = await service.startMovementTracking(mockVideo, vi.fn(), {
+        duration: 1000,
+        targetFps: 15,
+      })
+
+      Object.defineProperty(mockVideo, 'currentTime', { value: 0, writable: true })
+      callbacks.shift()?.(10)
+      callbacks.shift()?.(30)
+      mockVideo.currentTime = 0.04
+      callbacks.shift()?.(50)
+      mockVideo.currentTime = 0.08
+      callbacks.shift()?.(80)
+      stop()
+
+      expect(mockPoseLandmarker.detectForVideo).toHaveBeenCalledTimes(2)
+      expect(service.getPerformanceMetrics().monitor.droppedFrames).toBe(2)
+    })
   })
 
   describe('recordMovementSequence', () => {

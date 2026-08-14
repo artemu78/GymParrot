@@ -36,6 +36,14 @@ export interface Activity {
   // Type-specific data
   poseData?: PoseLandmark[];
   movementData?: TimestampedLandmarks[];
+  // Movement-activity reference video (MediaRecorder output, typically WebM)
+  // The video is stored separately as a Blob (IndexedDB or cloud backend) and
+  // referenced here by id. `videoUrl` may be used when the backend returns a
+  // remote URL directly; clients can call VideoBlobStore.resolveUrl() to get a
+  // playable object URL for either case.
+  videoBlobId?: string;
+  videoUrl?: string;
+  videoMimeType?: string;
 }
 
 export interface ComparisonResult {

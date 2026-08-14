@@ -60,6 +60,11 @@ describe('Service Integration', () => {
       })
     }
 
+    const mockVideo = {
+      blob: new Blob(['fake-video'], { type: 'video/webm' }),
+      mimeType: 'video/webm'
+    }
+
     // Create movement activity
     const activityId = await activityService.createMovementActivity(sequence, {
       name: 'Push-up Exercise',
@@ -67,7 +72,7 @@ describe('Service Integration', () => {
       createdBy: 'fitness_trainer',
       duration: 3000,
       isPublic: true
-    })
+    }, mockVideo)
 
     // Retrieve and verify
     const activity = await activityService.getActivityById(activityId)
@@ -98,7 +103,11 @@ describe('Service Integration', () => {
 
     const movementId = await activityService.createMovementActivity(
       [{ timestamp: 0, landmarks: [{ x: 0.5, y: 0.5, z: 0.1, visibility: 0.9 }] }],
-      { name: 'Jumping Jacks', type: 'movement', createdBy: 'user1', duration: 2000, isPublic: true }
+      { name: 'Jumping Jacks', type: 'movement', createdBy: 'user1', duration: 2000, isPublic: true },
+      {
+        blob: new Blob(['fake-video'], { type: 'video/webm' }),
+        mimeType: 'video/webm'
+      }
     )
 
     // Test public activities filtering

@@ -2,7 +2,7 @@
   "name": "GymParrot",
   "private": false,
   "type": "module",
-  "version": "0.0.3",
+  "version": "0.0.5",
   "author": "GymParrot",
   "license": "MIT",
   "repository": {
@@ -19,7 +19,8 @@
     "test:coverage": "vitest run --coverage --coverage.all",
     "format": "biome format",
     "lint": "biome lint",
-    "check": "biome check"
+    "check": "biome check",
+    "check:ci": "biome check src/components/PerformancePanel.tsx src/services/poseFeatures.ts src/services/squatEvaluator.ts src/services/__tests__/poseFeatures.test.ts src/services/__tests__/squatEvaluator.test.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.22-rc.20250304",

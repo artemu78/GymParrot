@@ -1,13 +1,18 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import WebcamPreview from "./WebcamPreview";
+import WebcamPreview, { WEBCAM_PREVIEW_MIRRORED } from "./WebcamPreview";
+import VideoReferencePlayer from "./VideoReferencePlayer";
 import {
   mediaPipeService,
   webcamService,
   comparisonService,
   activityService,
 } from "../services";
+import { MovementVideoRecorder } from "../services/MovementVideoRecorder";
+import PerformancePanel from "./PerformancePanel";
+import { MEDIAPIPE_CONFIG } from "../utils/constants";
 import type {
   PoseLandmark,
+  TimestampedLandmarks,
   Activity,
   DifficultyLevel,
   ComparisonResult,
@@ -127,6 +132,7 @@ interface PracticeInterfaceProps {
   onError?: (error: string) => void;
   onDifficultyChange?: (difficulty: DifficultyLevel) => void;
   className?: string;
+  reviewRecordingEnabled?: boolean;
 }
 
 type PracticeState =
@@ -153,6 +159,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   onError,
   onDifficultyChange,
   className = "",
+  reviewRecordingEnabled = false,
 }) => {
   const [activity, setActivity] = useState<Activity | null>(null);
   const [practiceState, setPracticeState] = useState<PracticeState>("loading");
@@ -172,10 +179,19 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isTracking, setIsTracking] = useState(false);
   const [isCameraTesting, setIsCameraTesting] = useState(false);
+  const [diagnostics, setDiagnostics] = useState(() => ({
+    ...mediaPipeService.getPerformanceMetrics(),
+    uiFps: 0,
+    recordingEnabled: false,
+  }));
+  const diagnosticsEnabled = new URLSearchParams(window.location.search).has("poseDiagnostics");
 
   // New states for the requested features
   const [countdown, setCountdown] = useState<number | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [traineeRecordingUrl, setTraineeRecordingUrl] = useState<string | null>(
+    null
+  );
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopTrackingRef = useRef<(() => void) | null>(null);
@@ -183,6 +199,36 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
   // Ref to access latest landmarks in callbacks without triggering effects
   const currentLandmarksRef = useRef<PoseLandmark[]>([]);
+  const lastUiUpdateRef = useRef(0);
+  const uiPublishTimesRef = useRef<number[]>([]);
+
+  const publishLandmarks = useCallback((landmarks: PoseLandmark[]) => {
+    currentLandmarksRef.current = landmarks;
+    const now = performance.now();
+    if (now - lastUiUpdateRef.current >= 100) {
+      lastUiUpdateRef.current = now;
+      uiPublishTimesRef.current = [
+        ...uiPublishTimesRef.current.filter(
+          (timestamp) => now - timestamp <= 1000
+        ),
+        now,
+      ];
+      setCurrentLandmarks(landmarks);
+    }
+  }, []);
+
+  // Movement practice capture (for post-practice comparison)
+  const movementAttemptRef = useRef<TimestampedLandmarks[]>([]);
+  const traineeRecorderRef = useRef<MovementVideoRecorder | null>(null);
+  const traineeRecordingUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const url = traineeRecordingUrl;
+    traineeRecordingUrlRef.current = url;
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [traineeRecordingUrl]);
 
   // Sync ref with state
   useEffect(() => {
@@ -193,6 +239,32 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   useEffect(() => {
     setDifficulty(initialDifficulty);
   }, [initialDifficulty]);
+
+  useEffect(() => {
+    if (!diagnosticsEnabled) return;
+    const timer = window.setInterval(() => {
+      const now = performance.now();
+      const recentPublishes = uiPublishTimesRef.current.filter(
+        (timestamp) => now - timestamp <= 1000
+      );
+      uiPublishTimesRef.current = recentPublishes;
+      const publishDuration =
+        recentPublishes.length > 1
+          ? recentPublishes.at(-1)! - recentPublishes[0]
+          : 0;
+      const uiFps =
+        publishDuration > 0
+          ? ((recentPublishes.length - 1) * 1000) / publishDuration
+          : 0;
+
+      setDiagnostics({
+        ...mediaPipeService.getPerformanceMetrics(),
+        uiFps,
+        recordingEnabled: traineeRecorderRef.current !== null,
+      });
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [diagnosticsEnabled]);
 
   // Notify parent of difficulty change
   const handleDifficultyChange = (newDifficulty: DifficultyLevel) => {
@@ -249,6 +321,16 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
   const resetPractice = useCallback(() => {
     stopPractice();
+    if (traineeRecorderRef.current) {
+      traineeRecorderRef.current.cancel();
+      traineeRecorderRef.current = null;
+    }
+    if (traineeRecordingUrlRef.current) {
+      URL.revokeObjectURL(traineeRecordingUrlRef.current);
+      traineeRecordingUrlRef.current = null;
+    }
+    movementAttemptRef.current = [];
+    setTraineeRecordingUrl(null);
     setPracticeState("ready");
     setCountdown(null);
     setCapturedImage(null);
@@ -326,7 +408,8 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
         const result = await comparisonService.comparePoses(
           activity.poseData,
           capturedLandmarks,
-          difficulty
+          difficulty,
+          WEBCAM_PREVIEW_MIRRORED
         );
         console.log("📊 Comparison result:", result);
 
@@ -405,9 +488,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
         const stopTracking = await mediaPipeService.startMovementTracking(
           videoRef.current,
-          (landmarks) => {
-            setCurrentLandmarks(landmarks);
-          },
+          publishLandmarks,
           {
             duration: Infinity,
             onError: (error) => {
@@ -418,22 +499,108 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
         stopTrackingRef.current = stopTracking;
 
       } else if (activity.type === "movement" && activity.movementData) {
-        // Original logic for movement
         setPracticeState("practicing");
         setIsTracking(true);
 
+        movementAttemptRef.current = [];
+        if (traineeRecordingUrlRef.current) {
+          URL.revokeObjectURL(traineeRecordingUrlRef.current);
+          traineeRecordingUrlRef.current = null;
+        }
+        setTraineeRecordingUrl(null);
+
+        // Capture trainee video (for side-by-side comparison review).
+        if (reviewRecordingEnabled && MovementVideoRecorder.isSupported() && videoRef.current) {
+          try {
+            const recorder = new MovementVideoRecorder(videoRef.current, {
+              frameRate: 30,
+            });
+            recorder.start();
+            traineeRecorderRef.current = recorder;
+          } catch (err) {
+            console.warn("Trainee video recording unavailable:", err);
+            traineeRecorderRef.current = null;
+          }
+        }
+
         const stopTracking = await mediaPipeService.startMovementTracking(
           videoRef.current,
-          (landmarks) => {
-            setCurrentLandmarks(landmarks);
+          (landmarks, timestamp) => {
+            publishLandmarks(landmarks);
+            movementAttemptRef.current.push({ timestamp, landmarks });
+            if (traineeRecorderRef.current) {
+              traineeRecorderRef.current.pushLandmarks(landmarks);
+            }
           },
           {
             duration: activity.duration || 10000,
             onComplete: async () => {
-              stopPractice();
-              setPracticeState("completed");
+              try {
+                setPracticeState("processing");
+
+                // Finalize trainee video recording (best effort).
+                let traineeVideoUrl: string | null = null;
+                if (traineeRecorderRef.current) {
+                  try {
+                    const result = await traineeRecorderRef.current.stop();
+                    if (result.blob.size > 0) {
+                      traineeVideoUrl = URL.createObjectURL(result.blob);
+                    }
+                  } catch (err) {
+                    console.warn("Failed to finalize trainee recording:", err);
+                  } finally {
+                    traineeRecorderRef.current = null;
+                  }
+                }
+
+                stopPractice();
+
+                if (traineeVideoUrl) {
+                  setTraineeRecordingUrl(traineeVideoUrl);
+                }
+
+                const result = comparisonService.compareMovementSequence(
+                  activity.movementData ?? [],
+                  movementAttemptRef.current,
+                  difficulty
+                );
+                setComparisonResult(result);
+
+                setSession((prev) => {
+                  const newAttempts = prev.attempts + 1;
+                  const newSuccessful = result.isMatch
+                    ? prev.successfulMatches + 1
+                    : prev.successfulMatches;
+                  const newTotalScore = prev.totalScore + result.score;
+                  const newBestScore = Math.max(prev.bestScore, result.score);
+                  return {
+                    ...prev,
+                    attempts: newAttempts,
+                    successfulMatches: newSuccessful,
+                    totalScore: newTotalScore,
+                    bestScore: newBestScore,
+                  };
+                });
+
+                setPracticeState("completed");
+              } catch (error) {
+                if (traineeRecorderRef.current) {
+                  traineeRecorderRef.current.cancel();
+                  traineeRecorderRef.current = null;
+                }
+                stopPractice();
+                const message =
+                  error instanceof Error
+                    ? error.message
+                    : "Failed to score movement";
+                handleError(message);
+              }
             },
             onError: (error) => {
+              if (traineeRecorderRef.current) {
+                traineeRecorderRef.current.cancel();
+                traineeRecorderRef.current = null;
+              }
               stopPractice();
               handleError(error.message);
             },
@@ -447,7 +614,16 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       stopPractice();
       handleError(message);
     }
-  }, [activity, practiceState, clearError, handleError, stopPractice]);
+  }, [
+    activity,
+    practiceState,
+    clearError,
+    handleError,
+    stopPractice,
+    difficulty,
+    publishLandmarks,
+    reviewRecordingEnabled,
+  ]);
 
   const testCamera = useCallback(async () => {
     if (!videoRef.current) return;
@@ -468,9 +644,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
       const stopTracking = await mediaPipeService.startMovementTracking(
         video,
-        (landmarks) => {
-          setCurrentLandmarks(landmarks);
-        },
+        publishLandmarks,
         {
           duration: Infinity,
           onError: (error) => {
@@ -487,7 +661,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       handleError(message);
       setIsCameraTesting(false);
     }
-  }, [clearError, handleError]);
+  }, [clearError, handleError, publishLandmarks]);
 
   const stopCameraTest = useCallback(() => {
     if (stopTrackingRef.current) {
@@ -630,11 +804,15 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
           {/* Main Comparison Area */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-             {/* Original Activity Image */}
+             {/* Original Activity Image / Movement Playback */}
              <div className="flex flex-col">
-                <h3 className="text-lg font-medium text-gray-900 mb-3">Target Pose</h3>
+                <h3 className="text-lg font-medium text-gray-900 mb-3">
+                  {activity.type === "movement" ? "Target Movement" : "Target Pose"}
+                </h3>
                 <div className="relative aspect-video bg-gray-100 rounded-lg overflow-hidden border border-gray-200 shadow-inner">
-                   {activity.imageData ? (
+                   {activity.type === "movement" ? (
+                      <VideoReferencePlayer activity={activity} loop autoPlay />
+                   ) : activity.imageData ? (
                       <>
                         {/* Mirror to match the selfie-view preview the trainer saw when recording */}
                         <img
@@ -659,9 +837,25 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
              {/* Practice Area */}
              <div className="flex flex-col">
-                <h3 className="text-lg font-medium text-gray-900 mb-3">Your Pose</h3>
+                <h3 className="text-lg font-medium text-gray-900 mb-3">
+                  {activity.type === "movement" ? "Your Movement" : "Your Pose"}
+                </h3>
                 <div className="relative aspect-video bg-black rounded-lg overflow-hidden shadow-inner">
 
+                   {/* Trainee's recorded video playback (movement, completed) */}
+                   {activity.type === "movement" &&
+                    practiceState === "completed" &&
+                    traineeRecordingUrl ? (
+                      <video
+                        src={traineeRecordingUrl}
+                        controls
+                        loop
+                        playsInline
+                        className="w-full h-full object-contain bg-black"
+                        data-testid="trainee-recording"
+                      />
+                   ) : (
+                     <>
                    {/* Camera View */}
                    <div className={`${capturedImage ? 'hidden' : 'block'} w-full h-full`}>
                       <WebcamPreview
@@ -706,13 +900,27 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                          </div>
                       </div>
                    )}
-
+                     </>
+                   )}
                 </div>
              </div>
           </div>
 
           {/* Result Section - Shown below both windows */}
           {practiceState === "completed" && renderResultSection()}
+
+          {diagnosticsEnabled && (
+            <PerformancePanel
+              metrics={diagnostics.monitor}
+              uiFps={diagnostics.uiFps}
+              width={videoRef.current?.videoWidth ?? 0}
+              height={videoRef.current?.videoHeight ?? 0}
+              delegate={MEDIAPIPE_CONFIG.baseOptions.delegate}
+              recordingEnabled={diagnostics.recordingEnabled}
+              retainedFrames={diagnostics.memory.historySize}
+              retainedBytes={diagnostics.memory.estimatedMemory}
+            />
+          )}
 
           {/* Controls */}
           <div className="mt-8 flex justify-center gap-4">

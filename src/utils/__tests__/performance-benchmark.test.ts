@@ -24,7 +24,7 @@ const generateMockTimestampedLandmarks = (frameCount: number = 100) => {
   }));
 };
 
-describe('Performance Benchmarks', () => {
+describe('Synthetic utility benchmarks (does not measure MediaPipe inference)', () => {
   describe('Pose Data Compression', () => {
     it('should significantly reduce data size', () => {
       const landmarks = generateMockLandmarks(33);

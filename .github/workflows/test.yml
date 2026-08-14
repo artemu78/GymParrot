@@ -14,3 +14,6 @@ jobs:
           node-version: '22'  # Set your Node.js version as required
       - run: npm ci           # Faster and more reliable than npm install for CI
       - run: npm run test
+      - run: npm run build
+      # Legacy files are baselined; enforce Biome on milestone-owned paths.
+      - run: npm run check:ci

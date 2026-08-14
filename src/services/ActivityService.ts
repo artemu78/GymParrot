@@ -4,6 +4,12 @@ import { ActivityError } from '../types'
 import { validateActivity, validateActivityMetadata } from '../utils/validation'
 import { ERROR_MESSAGES } from '../utils/constants'
 import storageService from './StorageService'
+import videoBlobStore from './VideoBlobStore'
+
+export interface MovementVideoInput {
+  blob: Blob
+  mimeType: string
+}
 
 export class ActivityService implements IActivityService {
   private nextId = 1
@@ -77,7 +83,11 @@ export class ActivityService implements IActivityService {
     }
   }
 
-  async createMovementActivity(landmarkSequence: TimestampedLandmarks[], metadata: ActivityMetadata): Promise<string> {
+  async createMovementActivity(
+    landmarkSequence: TimestampedLandmarks[],
+    metadata: ActivityMetadata,
+    video?: MovementVideoInput
+  ): Promise<string> {
     try {
       // Validate inputs
       if (!Array.isArray(landmarkSequence) || landmarkSequence.length === 0) {
@@ -115,13 +125,39 @@ export class ActivityService implements IActivityService {
         }))
       }
 
-      // Validate complete activity
-      if (!validateActivity(activity)) {
-        throw new ActivityError('Created activity failed validation', 'VALIDATION_FAILED')
+      // Persist video blob (mandatory for movement) in the dedicated blob store.
+      // We do this before saving the activity so the stored activity points at
+      // a real blob id. LocalStorage can't hold video; IndexedDB (default blob
+      // store) can, and swapping to a cloud backend is a one-line change.
+      let videoBlobId: string | undefined;
+      if (video && video.blob && video.blob.size > 0) {
+        videoBlobId = `${activityId}_video`
+        await videoBlobStore.save(videoBlobId, video.blob)
+        activity.videoBlobId = videoBlobId
+        activity.videoMimeType = video.mimeType
+      } else {
+        throw new ActivityError('Movement activities must include a recorded reference video', 'VIDEO_REQUIRED')
       }
 
-      // Store activity
-      await this.saveActivity(activity)
+      try {
+        // Validate complete activity
+        if (!validateActivity(activity)) {
+          throw new ActivityError('Created activity failed validation', 'VALIDATION_FAILED')
+        }
+
+        // Store activity
+        await this.saveActivity(activity)
+      } catch (error) {
+        // Rollback video blob if activity save fails to prevent orphaned blobs
+        if (videoBlobId) {
+          try {
+            await videoBlobStore.remove(videoBlobId)
+          } catch (cleanupError) {
+            console.warn('Failed to cleanup video blob after activity save failure:', cleanupError)
+          }
+        }
+        throw error
+      }
 
       return activityId
 
@@ -163,18 +199,41 @@ export class ActivityService implements IActivityService {
       }
 
       // Return deep copy to prevent external modification
-      const landmarks = Array.isArray(activity.landmarks) 
-        ? activity.landmarks.map(item => 
-            'timestamp' in item 
+      const landmarks = Array.isArray(activity.landmarks)
+        ? activity.landmarks.map(item =>
+            'timestamp' in item
               ? { timestamp: item.timestamp, landmarks: [...item.landmarks] } as TimestampedLandmarks
               : { ...item } as PoseLandmark
           )
         : [];
 
-      return {
+      // Ensure type-specific accessors (poseData / movementData) are populated
+      // when loading from storage, since only `landmarks` is persisted.
+      const hydrated: Activity = {
         ...activity,
-        landmarks: landmarks as typeof activity.landmarks
+        landmarks: landmarks as typeof activity.landmarks,
+      };
+
+      if (activity.type === 'movement') {
+        const hasValidSequence =
+          Array.isArray(hydrated.movementData) && hydrated.movementData.length > 0;
+        if (!hasValidSequence) {
+          hydrated.movementData = (landmarks as TimestampedLandmarks[]).map(
+            (frame) => ({
+              timestamp: frame.timestamp,
+              landmarks: [...frame.landmarks],
+            })
+          );
+        }
+      } else if (activity.type === 'pose') {
+        const hasValidPose =
+          Array.isArray(hydrated.poseData) && hydrated.poseData.length > 0;
+        if (!hasValidPose) {
+          hydrated.poseData = (landmarks as PoseLandmark[]).map((lm) => ({ ...lm }));
+        }
       }
+
+      return hydrated;
 
     } catch (error) {
       if (error instanceof ActivityError) {
@@ -256,6 +315,14 @@ export class ActivityService implements IActivityService {
       const activity = await storageService.getActivity(id);
       if (!activity) {
         throw new ActivityError('Activity not found', 'NOT_FOUND')
+      }
+
+      if (activity.videoBlobId) {
+        try {
+          await videoBlobStore.remove(activity.videoBlobId);
+        } catch (error) {
+          console.warn('Failed to delete video blob:', error);
+        }
       }
 
       await storageService.deleteActivity(id);
