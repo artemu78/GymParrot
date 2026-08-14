@@ -178,6 +178,11 @@ describe("PracticeInterface", () => {
 
       const targetImage = await screen.findByAltText("Target Pose");
       expect(targetImage.style.transform).toContain("scaleX(-1)");
+
+      const landmarkOverlay = targetImage.parentElement
+        ?.querySelector("svg")
+        ?.parentElement;
+      expect(landmarkOverlay?.style.transform).toContain("scaleX(-1)");
     });
   });
 

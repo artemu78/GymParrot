@@ -19,5 +19,10 @@ describe("CapturedPoseView", () => {
 
     const capturedImage = screen.getByAltText("Captured pose");
     expect(capturedImage.style.transform).toContain("scaleX(-1)");
+
+    const landmarkOverlay = capturedImage.parentElement
+      ?.querySelector("svg")
+      ?.parentElement;
+    expect(landmarkOverlay?.style.transform).toContain("scaleX(-1)");
   });
 });
