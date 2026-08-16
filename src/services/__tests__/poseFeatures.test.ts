@@ -47,9 +47,22 @@ describe("normalizePose", () => {
 		).toBeLessThan(0.001);
 	});
 
-	it("returns a quality warning when a required anchor is hidden", () => {
+	it("uses visible geometry for normalization and excludes low-confidence points", () => {
 		const pose = standingPose();
 		pose[23].visibility = 0.1;
+		const normalized = normalizePose(pose);
+
+		expect(normalized.warning).toBeUndefined();
+		expect(normalized.landmarks[23]).toBeNull();
+		expect(normalized.landmarks[24]).not.toBeNull();
+	});
+
+	it("returns a quality warning when visible geometry is unavailable", () => {
+		const pose = standingPose().map((landmark) => ({
+			...landmark,
+			visibility: 0.1,
+		}));
+
 		expect(normalizePose(pose).warning).toMatch(/cannot evaluate/i);
 	});
 });

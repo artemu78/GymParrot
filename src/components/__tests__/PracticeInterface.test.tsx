@@ -113,10 +113,10 @@ describe("PracticeInterface", () => {
        () => {}
     );
     vi.mocked(webcamService.startVideoStream).mockResolvedValue(undefined);
-    vi.mocked(comparisonService.comparePoses).mockResolvedValue(
+    vi.mocked(comparisonService.comparePoses).mockReturnValue(
       mockComparisonResult
     );
-    vi.mocked(comparisonService.compareMovementSequence).mockResolvedValue(
+    vi.mocked(comparisonService.compareMovementSequence).mockReturnValue(
       mockComparisonResult
     );
 
@@ -301,12 +301,41 @@ describe("PracticeInterface", () => {
   });
 
   describe("Practice Flow (Pose)", () => {
+      const mockLivePoseTracking = () => {
+          const evaluation = {
+              onFrame: null as Parameters<typeof mediaPipeService.startMovementTracking>[1] | null,
+              onComplete: null as (() => void) | null,
+          };
+
+          vi.mocked(mediaPipeService.startMovementTracking).mockImplementation(
+              async (_video, onFrame, options) => {
+                  if (options?.duration === 5000) {
+                      evaluation.onFrame = onFrame;
+                      evaluation.onComplete = options.onComplete ?? null;
+                  }
+                  return () => {};
+              }
+          );
+
+          return evaluation;
+      };
+
+      const advanceThroughCountdown = async () => {
+          for (let i = 0; i < 4; i++) {
+              await act(async () => {
+                  await vi.advanceTimersByTimeAsync(1000);
+                  await Promise.resolve();
+              });
+          }
+      };
+
       beforeEach(async () => {
           vi.mocked(activityService.getActivityById).mockResolvedValue(mockPoseActivity);
       });
 
-      it("should capture and compare after countdown", async () => {
+      it("should keep the highest live score and its matching photo", async () => {
           vi.useFakeTimers();
+          const evaluation = mockLivePoseTracking();
           const onComplete = vi.fn();
           const { container } = render(<PracticeInterface activityId="pose-1" onComplete={onComplete} />);
 
@@ -328,31 +357,59 @@ describe("PracticeInterface", () => {
 
           expect(screen.getByText("3")).toBeInTheDocument();
 
-          // Countdown 3..2..1..0
-          // Advance step by step to ensure recursive effects run
-          for (let i = 0; i < 5; i++) {
-              await act(async () => {
-                  await vi.advanceTimersByTimeAsync(1000);
-                  await Promise.resolve();
-              });
-          }
-
-          // Verify comparison call and overlay
-          expect(comparisonService.comparePoses).toHaveBeenCalledWith(
-            mockPoseActivity.poseData,
-            [],
-            "medium",
-            true
+          await advanceThroughCountdown();
+          expect(screen.getByText(/Live score/)).toBeInTheDocument();
+          expect(mediaPipeService.startMovementTracking).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.any(Function),
+            expect.objectContaining({ duration: 5000 })
           );
+
+          const results = [
+            { ...mockComparisonResult, score: 0.4, isMatch: false },
+            { ...mockComparisonResult, score: 0.8, isMatch: true },
+            { ...mockComparisonResult, score: 0.6, isMatch: false },
+            { ...mockComparisonResult, score: 0.9, isMatch: true },
+          ];
+          vi.mocked(comparisonService.comparePoses)
+            .mockReturnValueOnce(results[0])
+            .mockReturnValueOnce(results[1])
+            .mockReturnValueOnce(results[2])
+            .mockReturnValueOnce(results[3]);
+          vi.mocked(HTMLCanvasElement.prototype.toDataURL)
+            .mockReturnValueOnce("data:image/jpeg;base64,score-40")
+            .mockReturnValueOnce("data:image/jpeg;base64,score-80")
+            .mockReturnValueOnce("data:image/jpeg;base64,score-90");
+
+          await act(async () => {
+            for (let index = 0; index < results.length; index++) {
+              evaluation.onFrame?.(
+                [{ x: index / 10, y: 0.5, z: 0, visibility: 1 }],
+                index * 100
+              );
+            }
+          });
+
+          expect(screen.getByText("Best: 90%")).toBeInTheDocument();
+          expect(HTMLCanvasElement.prototype.toDataURL).toHaveBeenCalledTimes(3);
+
+          await act(async () => {
+            evaluation.onComplete?.();
+          });
+
           expect(screen.getByText("Excellent!")).toBeInTheDocument();
+          expect(screen.getAllByText("90%")).toHaveLength(2);
 
           // Target pose image should still be visible alongside the result
           expect(screen.getByText("Target Pose")).toBeInTheDocument();
           expect(screen.getByText("Your Pose")).toBeInTheDocument();
-          expect(screen.getByAltText("Your Attempt")).toBeInTheDocument();
+          expect(screen.getByAltText("Your Attempt")).toHaveAttribute(
+            "src",
+            "data:image/jpeg;base64,score-90"
+          );
 
           fireEvent.click(screen.getByText("Approve and save"));
-          expect(onComplete).toHaveBeenCalledWith(0.85);
+          expect(onComplete).toHaveBeenCalledWith(0.9);
       });
 
       it("should allow cancel during countdown", async () => {
@@ -386,6 +443,7 @@ describe("PracticeInterface", () => {
 
       it("should allow retry after completion", async () => {
          vi.useFakeTimers();
+         const evaluation = mockLivePoseTracking();
          const { container } = render(<PracticeInterface activityId="pose-1" />);
          await act(async () => { await vi.runAllTimersAsync(); });
          expect(screen.getByText("Start Practice")).toBeInTheDocument();
@@ -402,13 +460,11 @@ describe("PracticeInterface", () => {
              await Promise.resolve();
          });
 
-         // Countdown
-         for (let i = 0; i < 5; i++) {
-              await act(async () => {
-                  await vi.advanceTimersByTimeAsync(1000);
-                  await Promise.resolve();
-              });
-         }
+         await advanceThroughCountdown();
+         await act(async () => {
+            evaluation.onFrame?.(mockPoseActivity.poseData ?? [], 0);
+            evaluation.onComplete?.();
+         });
 
          expect(screen.getByText("Excellent!")).toBeInTheDocument();
 
@@ -420,6 +476,7 @@ describe("PracticeInterface", () => {
 
       it("should keep practice screen visible with target pose and buttons after countdown", async () => {
          vi.useFakeTimers();
+         const evaluation = mockLivePoseTracking();
          const onComplete = vi.fn();
          const { container } = render(
             <PracticeInterface activityId="pose-1" onComplete={onComplete} />
@@ -439,13 +496,11 @@ describe("PracticeInterface", () => {
             await Promise.resolve();
          });
 
-         // Countdown to completion
-         for (let i = 0; i < 5; i++) {
-            await act(async () => {
-               await vi.advanceTimersByTimeAsync(1000);
-               await Promise.resolve();
-            });
-         }
+         await advanceThroughCountdown();
+         await act(async () => {
+            evaluation.onFrame?.(mockPoseActivity.poseData ?? [], 0);
+            evaluation.onComplete?.();
+         });
 
          // After countdown, practice screen must remain (target + captured image)
          expect(screen.getByText("Target Pose")).toBeInTheDocument();

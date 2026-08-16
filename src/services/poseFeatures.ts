@@ -18,48 +18,63 @@ export interface NormalizedPose {
 	warning?: string;
 }
 
-const isVisible = (landmark: PoseLandmark | undefined, threshold: number) =>
+const hasFiniteCoordinates = (
+	landmark: PoseLandmark | undefined,
+): landmark is PoseLandmark =>
 	!!landmark &&
 	Number.isFinite(landmark.x) &&
 	Number.isFinite(landmark.y) &&
-	Number.isFinite(landmark.z) &&
-	(landmark.visibility ?? 1) >= threshold;
+	Number.isFinite(landmark.z);
 
 export function normalizePose(
 	landmarks: PoseLandmark[],
 	mirrored = false,
-	visibilityThreshold = POSE_VISIBILITY_THRESHOLD,
 ): NormalizedPose {
-	const leftHip = landmarks[LANDMARK_INDEX.leftHip];
-	const rightHip = landmarks[LANDMARK_INDEX.rightHip];
-	const leftShoulder = landmarks[LANDMARK_INDEX.leftShoulder];
-	const rightShoulder = landmarks[LANDMARK_INDEX.rightShoulder];
-	const anchors = [leftHip, rightHip, leftShoulder, rightShoulder];
+	const visibleLandmarks = landmarks.filter(
+		(landmark) =>
+			hasFiniteCoordinates(landmark) &&
+			(landmark.visibility ?? 1) >= POSE_VISIBILITY_THRESHOLD,
+	);
 
-	if (!anchors.every((landmark) => isVisible(landmark, visibilityThreshold))) {
+	if (visibleLandmarks.length < 2) {
 		return {
 			landmarks: landmarks.map(() => null),
-			warning: "Cannot evaluate: hips and shoulders must be visible",
+			warning: "Cannot evaluate: not enough visible landmarks",
 		};
 	}
 
-	const originX = (leftHip.x + rightHip.x) / 2;
-	const originY = (leftHip.y + rightHip.y) / 2;
-	const originZ = (leftHip.z + rightHip.z) / 2;
-	const shoulderX = (leftShoulder.x + rightShoulder.x) / 2;
-	const shoulderY = (leftShoulder.y + rightShoulder.y) / 2;
-	const scale = Math.hypot(shoulderX - originX, shoulderY - originY);
+	const originX =
+		visibleLandmarks.reduce((sum, landmark) => sum + landmark.x, 0) /
+		visibleLandmarks.length;
+	const originY =
+		visibleLandmarks.reduce((sum, landmark) => sum + landmark.y, 0) /
+		visibleLandmarks.length;
+	const originZ =
+		visibleLandmarks.reduce((sum, landmark) => sum + landmark.z, 0) /
+		visibleLandmarks.length;
+	const scale = Math.sqrt(
+		visibleLandmarks.reduce(
+			(sum, landmark) =>
+				sum + (landmark.x - originX) ** 2 + (landmark.y - originY) ** 2,
+			0,
+		) / visibleLandmarks.length,
+	);
 
 	if (!Number.isFinite(scale) || scale < 0.01) {
 		return {
 			landmarks: landmarks.map(() => null),
-			warning: "Cannot evaluate: torso scale is unavailable",
+			warning: "Cannot evaluate: pose scale is unavailable",
 		};
 	}
 
 	return {
 		landmarks: landmarks.map((landmark) => {
-			if (!isVisible(landmark, visibilityThreshold)) return null;
+			if (
+				!hasFiniteCoordinates(landmark) ||
+				(landmark.visibility ?? 1) < POSE_VISIBILITY_THRESHOLD
+			) {
+				return null;
+			}
 			return {
 				x:
 					((mirrored ? 1 - landmark.x : landmark.x) -

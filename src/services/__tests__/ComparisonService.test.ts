@@ -87,11 +87,11 @@ describe('ComparisonService', () => {
       expect(result.score).toBeGreaterThan(0.95)
     })
 
-    it('rejects anchor-only poses with insufficient landmark coverage', () => {
+    it('rejects anchor-only coordinate data with insufficient landmark coverage', () => {
       const original = standingPose()
       const anchorOnly = standingPose().map((landmark, index) => ({
         ...landmark,
-        visibility: [11, 12, 23, 24].includes(index) ? 0.99 : 0.1,
+        x: [11, 12, 23, 24].includes(index) ? landmark.x : Number.NaN,
       }))
 
       const result = service.comparePoses(original, anchorOnly, 'soft')
@@ -150,15 +150,56 @@ describe('ComparisonService', () => {
   })
 
   describe('comparePoses', () => {
-    it('surfaces normalization warnings in feedback', () => {
+    it('evaluates a pose when one torso anchor has low visibility', () => {
       const recorded = standingPose()
       const current = standingPose()
       current[23].visibility = 0.1
 
       const result = service.comparePoses(recorded, current, 'soft')
 
-      expect(result.score).toBe(0)
-      expect(result.feedback[0]).toMatch(/cannot evaluate/i)
+      expect(result.isMatch).toBe(true)
+      expect(result.score).toBeGreaterThan(0.95)
+      expect(result.feedback).not.toEqual(
+        expect.arrayContaining([expect.stringMatching(/cannot evaluate/i)]),
+      )
+    })
+
+    it('ignores off-screen landmark estimates that are not drawn in the overlay', () => {
+      const recorded = standingPose()
+      const current = transformPose(standingPose(), 0.7, 0.12, 0.08)
+
+      for (let index = 18; index < 33; index++) {
+        recorded[index] = {
+          ...recorded[index],
+          x: -10 - index,
+          y: 10 + index,
+          z: 20,
+          visibility: 0.1,
+        }
+        current[index] = {
+          ...current[index],
+          x: 10 + index,
+          y: -10 - index,
+          z: -20,
+          visibility: 0.1,
+        }
+      }
+
+      const result = service.comparePoses(recorded, current, 'medium')
+
+      expect(result.score).toBeGreaterThan(0.8)
+    })
+
+    it('scores static pose shape from visible 2D geometry rather than depth noise', () => {
+      const recorded = standingPose()
+      const current = standingPose().map((landmark, index) => ({
+        ...landmark,
+        z: index % 2 === 0 ? 2 : -2,
+      }))
+
+      const result = service.comparePoses(recorded, current, 'medium')
+
+      expect(result.score).toBeGreaterThan(0.95)
     })
 
     it('should return match for identical poses on soft difficulty', () => {
@@ -203,7 +244,7 @@ describe('ComparisonService', () => {
 
     it('should provide different thresholds for different difficulties', () => {
       const landmarks1 = createTestLandmarks(0.5, 0.5, 0.1)
-      const landmarks2 = bendLegs(landmarks1, 0.2) // Moderately different
+      const landmarks2 = bendLegs(landmarks1, 0.15) // Moderately different
       
       const softResult = service.comparePoses(landmarks1, landmarks2, 'soft')
       const mediumResult = service.comparePoses(landmarks1, landmarks2, 'medium')
@@ -288,24 +329,37 @@ describe('ComparisonService', () => {
 
     it('should apply temporal weighting correctly', () => {
       const sequence1 = createTestSequence(30)
-      const sequence2 = createTestSequence(30)
+      const middleDifference = createTestSequence(30)
+      const edgeDifference = createTestSequence(30)
       
       // Make the middle frames very different
       for (let i = 10; i < 20; i++) {
-        sequence2[i].landmarks = bendLegs(createTestLandmarks(), 0.5)
+        middleDifference[i].landmarks = bendLegs(createTestLandmarks(), 0.5)
       }
+      // Change the same number of frames at the less important edges.
+      for (const index of [0, 1, 2, 3, 4, 25, 26, 27, 28, 29]) {
+        edgeDifference[index].landmarks = bendLegs(createTestLandmarks(), 0.5)
+      }
+
+      const middleResult = service.compareMovementSequence(
+        sequence1,
+        middleDifference,
+        'medium',
+      )
+      const edgeResult = service.compareMovementSequence(
+        sequence1,
+        edgeDifference,
+        'medium',
+      )
       
-      const result = service.compareMovementSequence(sequence1, sequence2, 'medium')
-      
-      // Should have lower score due to middle frame differences being weighted more
-      expect(result.score).toBeLessThan(0.7)
+      expect(middleResult.score).toBeLessThan(edgeResult.score)
     })
   })
 
   describe('difficulty levels', () => {
     it('should use correct thresholds for each difficulty', () => {
       const landmarks1 = createTestLandmarks()
-      const landmarks2 = bendLegs(landmarks1, 0.2) // Moderately different
+      const landmarks2 = bendLegs(landmarks1, 0.15) // Moderately different
       
       const softResult = service.comparePoses(landmarks1, landmarks2, 'soft')
       const mediumResult = service.comparePoses(landmarks1, landmarks2, 'medium')

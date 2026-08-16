@@ -164,6 +164,9 @@ export class MovementVideoRecorder {
     const lms = this.latestLandmarks;
     if (!lms || lms.length === 0) return;
 
+    const xPosition = (landmark: PoseLandmark) =>
+      (this.options.mirror ? 1 - landmark.x : landmark.x) * width;
+
     ctx.strokeStyle = "#00ff88";
     ctx.lineWidth = Math.max(2, Math.round(width * 0.005));
     ctx.lineCap = "round";
@@ -177,8 +180,8 @@ export class MovementVideoRecorder {
         (end.visibility ?? 1) < 0.5
       ) continue;
       ctx.beginPath();
-      ctx.moveTo(start.x * width, start.y * height);
-      ctx.lineTo(end.x * width, end.y * height);
+      ctx.moveTo(xPosition(start), start.y * height);
+      ctx.lineTo(xPosition(end), end.y * height);
       ctx.stroke();
     }
 
@@ -187,7 +190,7 @@ export class MovementVideoRecorder {
     for (const lm of lms) {
       if ((lm.visibility ?? 1) < 0.5) continue;
       ctx.beginPath();
-      ctx.arc(lm.x * width, lm.y * height, radius, 0, Math.PI * 2);
+      ctx.arc(xPosition(lm), lm.y * height, radius, 0, Math.PI * 2);
       ctx.fill();
     }
   }

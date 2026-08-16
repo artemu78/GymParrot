@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from "react";
-import WebcamPreview, { WEBCAM_PREVIEW_MIRRORED } from "./WebcamPreview";
+import WebcamPreview from "./WebcamPreview";
 import VideoReferencePlayer from "./VideoReferencePlayer";
 import {
   mediaPipeService,
@@ -195,6 +195,8 @@ type PracticeState =
   | "completed"
   | "error";
 
+const POSE_EVALUATION_DURATION_MS = 5000;
+
 interface PracticeSession {
   startTime: number;
   attempts: number;
@@ -239,6 +241,9 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
 
   // New states for the requested features
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [evaluationSecondsRemaining, setEvaluationSecondsRemaining] = useState(5);
+  const [liveScore, setLiveScore] = useState<number | null>(null);
+  const [bestLiveScore, setBestLiveScore] = useState(0);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [traineeRecordingUrl, setTraineeRecordingUrl] = useState<string | null>(
     null
@@ -251,7 +256,14 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   // Ref to access latest landmarks in callbacks without triggering effects
   const currentLandmarksRef = useRef<PoseLandmark[]>([]);
   const lastUiUpdateRef = useRef(0);
+  const lastScoreUiUpdateRef = useRef(0);
   const uiPublishTimesRef = useRef<number[]>([]);
+  const poseAttemptIdRef = useRef(0);
+  const bestPoseRef = useRef<{
+    result: ComparisonResult;
+    image: string | null;
+    landmarks: PoseLandmark[];
+  } | null>(null);
 
   const publishLandmarks = useCallback((landmarks: PoseLandmark[]) => {
     currentLandmarksRef.current = landmarks;
@@ -371,6 +383,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   }, []);
 
   const resetPractice = useCallback(() => {
+    poseAttemptIdRef.current += 1;
     stopPractice();
     if (traineeRecorderRef.current) {
       traineeRecorderRef.current.cancel();
@@ -384,9 +397,13 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     setTraineeRecordingUrl(null);
     setPracticeState("ready");
     setCountdown(null);
+    setEvaluationSecondsRemaining(5);
+    setLiveScore(null);
+    setBestLiveScore(0);
     setCapturedImage(null);
     setComparisonResult(null);
     setCurrentLandmarks([]);
+    bestPoseRef.current = null;
   }, [stopPractice]);
 
   // Cleanup on unmount
@@ -425,74 +442,142 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     [handleError, isCameraTesting, practiceState]
   );
 
-  const handleCaptureAndCompare = useCallback(async () => {
-    if (!videoRef.current || !activity) return;
+  const captureVideoFrame = useCallback((video: HTMLVideoElement) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    // Mirror the saved frame to match the webcam preview.
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0);
+    return canvas.toDataURL("image/jpeg");
+  }, []);
+
+  const completePoseEvaluation = useCallback(
+    (attemptId: number) => {
+      if (attemptId !== poseAttemptIdRef.current || !activity?.poseData) return;
+
+      setPracticeState("processing");
+      const fallbackLandmarks = [...currentLandmarksRef.current];
+      const bestPose =
+        bestPoseRef.current ?? {
+          result: comparisonService.comparePoses(
+            activity.poseData,
+            fallbackLandmarks,
+            difficulty
+          ),
+          image: videoRef.current ? captureVideoFrame(videoRef.current) : null,
+          landmarks: fallbackLandmarks,
+        };
+
+      stopPractice();
+      setCapturedImage(bestPose.image);
+      setCurrentLandmarks(bestPose.landmarks);
+      currentLandmarksRef.current = bestPose.landmarks;
+      setComparisonResult(bestPose.result);
+      setLiveScore(bestPose.result.score);
+      setBestLiveScore(bestPose.result.score);
+
+      setSession((prev) => ({
+        ...prev,
+        attempts: prev.attempts + 1,
+        successfulMatches:
+          prev.successfulMatches + (bestPose.result.isMatch ? 1 : 0),
+        totalScore: prev.totalScore + bestPose.result.score,
+        bestScore: Math.max(prev.bestScore, bestPose.result.score),
+      }));
+
+      setPracticeState("completed");
+    },
+    [activity, captureVideoFrame, difficulty, stopPractice]
+  );
+
+  const startPoseEvaluation = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video || !activity?.poseData) return;
+
+    if (stopTrackingRef.current) {
+      stopTrackingRef.current();
+      stopTrackingRef.current = null;
+    }
+
+    const attemptId = poseAttemptIdRef.current;
+    bestPoseRef.current = null;
+    lastScoreUiUpdateRef.current = 0;
+    setLiveScore(null);
+    setBestLiveScore(0);
+    setEvaluationSecondsRemaining(5);
+    setCountdown(null);
+    setPracticeState("practicing");
 
     try {
-      setPracticeState("processing");
+      const stopTracking = await mediaPipeService.startMovementTracking(
+        video,
+        (landmarks) => {
+          if (attemptId !== poseAttemptIdRef.current) return;
 
-      // 1. Capture Image
-      const video = videoRef.current;
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        // Mirror the image to match the preview
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
-        ctx.drawImage(video, 0, 0);
-        setCapturedImage(canvas.toDataURL("image/jpeg"));
-      }
+          publishLandmarks(landmarks);
+          const result = comparisonService.comparePoses(
+            activity.poseData ?? [],
+            landmarks,
+            difficulty
+          );
+          const now = performance.now();
+          if (now - lastScoreUiUpdateRef.current >= 100) {
+            lastScoreUiUpdateRef.current = now;
+            setLiveScore(result.score);
+          }
 
-      // 2. Capture Landmarks & Stop Tracking
-      // Use ref to get latest landmarks
-      const capturedLandmarks = [...currentLandmarksRef.current];
-      console.log("📸 Captured landmarks for comparison:", capturedLandmarks?.length || 0);
+          if (!bestPoseRef.current || result.score > bestPoseRef.current.result.score) {
+            bestPoseRef.current = {
+              result,
+              image: captureVideoFrame(video),
+              landmarks: landmarks.map((landmark) => ({ ...landmark })),
+            };
+            setBestLiveScore(result.score);
+          }
+        },
+        {
+          duration: POSE_EVALUATION_DURATION_MS,
+          onProgress: (elapsed, total) => {
+            if (attemptId !== poseAttemptIdRef.current) return;
+            setEvaluationSecondsRemaining(
+              Math.max(0, Math.ceil((total - elapsed) / 1000))
+            );
+          },
+          onComplete: () => completePoseEvaluation(attemptId),
+          onError: (error) => {
+            if (attemptId !== poseAttemptIdRef.current) return;
+            stopPractice();
+            handleError(error.message);
+          },
+        }
+      );
 
-      // Stop tracking and camera
-      stopPractice();
-
-      // 3. Compare
-      if (activity.type === "pose" && activity.poseData) {
-        console.log("🔍 Comparing poses - target landmarks:", activity.poseData?.length || 0, "captured landmarks:", capturedLandmarks?.length || 0);
-        const result = await comparisonService.comparePoses(
-          activity.poseData,
-          capturedLandmarks,
-          difficulty,
-          WEBCAM_PREVIEW_MIRRORED
-        );
-        console.log("📊 Comparison result:", result);
-
-        setComparisonResult(result);
-
-        // Update session stats
-        setSession((prev) => {
-          const newAttempts = prev.attempts + 1;
-          const newSuccessful = result.isMatch
-            ? prev.successfulMatches + 1
-            : prev.successfulMatches;
-          const newTotalScore = prev.totalScore + result.score;
-          const newBestScore = Math.max(prev.bestScore, result.score);
-
-          return {
-            ...prev,
-            attempts: newAttempts,
-            successfulMatches: newSuccessful,
-            totalScore: newTotalScore,
-            bestScore: newBestScore,
-          };
-        });
-
-        setPracticeState("completed");
-        // Don't call onComplete here - let user see results and choose to finish
+      if (attemptId === poseAttemptIdRef.current) {
+        stopTrackingRef.current = stopTracking;
+      } else {
+        stopTracking();
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to process result";
-      handleError(message);
+      if (attemptId !== poseAttemptIdRef.current) return;
+      stopPractice();
+      handleError(
+        error instanceof Error ? error.message : "Failed to evaluate pose"
+      );
     }
-  }, [activity, difficulty, handleError, stopPractice]);
+  }, [
+    activity,
+    captureVideoFrame,
+    completePoseEvaluation,
+    difficulty,
+    handleError,
+    publishLandmarks,
+    stopPractice,
+  ]);
 
   // Countdown logic
   useEffect(() => {
@@ -501,19 +586,22 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       if (countdown > 0) {
         timer = setTimeout(() => setCountdown(countdown - 1), 1000);
       } else {
-        // Countdown finished, trigger capture
-        // We use the stable callback
-        handleCaptureAndCompare();
+        void startPoseEvaluation();
       }
     }
     return () => clearTimeout(timer);
-  }, [practiceState, countdown, handleCaptureAndCompare]);
+  }, [practiceState, countdown, startPoseEvaluation]);
 
   const startPractice = useCallback(async () => {
     if (!videoRef.current || !activity || practiceState !== "ready") return;
 
     try {
       clearError();
+      poseAttemptIdRef.current += 1;
+      bestPoseRef.current = null;
+      setLiveScore(null);
+      setBestLiveScore(0);
+      setEvaluationSecondsRemaining(5);
       setCapturedImage(null);
       setComparisonResult(null);
 
@@ -743,7 +831,9 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
           <div className={`text-4xl font-bold ${colorClass}`}>
             {percentage}%
           </div>
-          <p className="text-gray-600 mt-2">Accuracy Score</p>
+          <p className="text-gray-600 mt-2">
+            {activity?.type === "pose" ? "Best score" : "Accuracy Score"}
+          </p>
         </div>
 
         {comparisonResult.feedback && comparisonResult.feedback.length > 0 && (
@@ -938,6 +1028,25 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                          </div>
                       </div>
                    )}
+
+                   {activity.type === "pose" && practiceState === "practicing" && (
+                     <div
+                       className="absolute inset-x-0 top-0 z-20 flex justify-center p-4 pointer-events-none"
+                       aria-live="polite"
+                     >
+                       <div className="rounded-lg bg-black/70 px-5 py-3 text-center text-white shadow-lg backdrop-blur-sm">
+                         <div className="text-sm font-medium uppercase tracking-wide">
+                           Live score · {evaluationSecondsRemaining}s
+                         </div>
+                         <div className="mt-1 text-4xl font-bold">
+                           {liveScore === null ? "—" : `${Math.round(liveScore * 100)}%`}
+                         </div>
+                         <div className="mt-1 text-sm text-blue-200">
+                           Best: {Math.round(bestLiveScore * 100)}%
+                         </div>
+                       </div>
+                     </div>
+                   )}
                      </>
                    )}
                 </div>
@@ -1004,7 +1113,8 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
              <ul className="text-sm text-blue-700 space-y-1 ml-4 list-disc">
                 <li>Ensure your whole body is visible in the camera frame.</li>
                 <li>Lighting should be bright enough for accurate detection.</li>
-                <li>Hold the pose steady when the countdown reaches 0.</li>
+                <li>After the countdown, improve your pose during the 5-second scoring window.</li>
+                <li>Your highest score and its matching photo will be saved.</li>
                 <li>Check the target image on the left and mirror it.</li>
              </ul>
           </div>

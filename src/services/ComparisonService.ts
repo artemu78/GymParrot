@@ -43,13 +43,32 @@ export class ComparisonService implements IComparisonService {
         normalizedRecorded.warning,
         normalizedCurrent.warning,
       ].filter((warning): warning is string => Boolean(warning));
-      const score =
-        normalizationWarnings.length > 0
-          ? 0
-          : this.calculateNormalizedSimilarityScore(
-              normalizedRecorded.landmarks,
-              normalizedCurrent.landmarks
-            );
+
+      console.debug("[comparePoses]", {
+        recordedWarning: normalizedRecorded.warning,
+        currentWarning: normalizedCurrent.warning,
+        recordedNullCount: normalizedRecorded.landmarks.filter((l) => l === null).length,
+        currentNullCount: normalizedCurrent.landmarks.filter((l) => l === null).length,
+        recordedTotal: normalizedRecorded.landmarks.length,
+        currentTotal: normalizedCurrent.landmarks.length,
+        recordedAnchorVisibility: {
+          leftHip: recorded[23]?.visibility,
+          rightHip: recorded[24]?.visibility,
+          leftShoulder: recorded[11]?.visibility,
+          rightShoulder: recorded[12]?.visibility,
+        },
+        currentAnchorVisibility: {
+          leftHip: current[23]?.visibility,
+          rightHip: current[24]?.visibility,
+          leftShoulder: current[11]?.visibility,
+          rightShoulder: current[12]?.visibility,
+        },
+      });
+
+      const score = this.calculateNormalizedSimilarityScore(
+        normalizedRecorded.landmarks,
+        normalizedCurrent.landmarks
+      );
       const threshold = DIFFICULTY_THRESHOLDS[difficulty];
       const isMatch = score >= threshold;
 
@@ -238,11 +257,12 @@ export class ComparisonService implements IComparisonService {
       }
 
       // Skip if either landmark has very low visibility
-      // Calculate Euclidean distance in 3D space
+      // Static webcam comparison follows the visible 2D overlay. MediaPipe's
+      // relative depth is much noisier across separate captures and must not
+      // overwhelm an otherwise matching silhouette.
       const dx = landmark1.x - landmark2.x;
       const dy = landmark1.y - landmark2.y;
-      const dz = landmark1.z - landmark2.z;
-      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const distance = Math.hypot(dx, dy);
 
       // Skip if distance calculation resulted in NaN
       if (isNaN(distance)) {
@@ -474,8 +494,7 @@ export class ComparisonService implements IComparisonService {
           ) {
             const dx = landmark1.x - landmark2.x;
             const dy = landmark1.y - landmark2.y;
-            const dz = landmark1.z - landmark2.z;
-            partDistance += Math.sqrt(dx * dx + dy * dy + dz * dz);
+            partDistance += Math.hypot(dx, dy);
             validComparisons++;
           }
         }
@@ -567,8 +586,7 @@ export class ComparisonService implements IComparisonService {
           ) {
             const dx = landmark1.x - landmark2.x;
             const dy = landmark1.y - landmark2.y;
-            const dz = landmark1.z - landmark2.z;
-            groupDistance += Math.sqrt(dx * dx + dy * dy + dz * dz);
+            groupDistance += Math.hypot(dx, dy);
             validComparisons++;
           }
         }
