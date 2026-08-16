@@ -195,6 +195,8 @@ type PracticeState =
   | "completed"
   | "error";
 
+type MovementPlaybackPhase = "preview" | "armed" | "attempt";
+
 const POSE_EVALUATION_DURATION_MS = 5000;
 
 interface PracticeSession {
@@ -248,6 +250,8 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
   const [traineeRecordingUrl, setTraineeRecordingUrl] = useState<string | null>(
     null
   );
+  const [movementPlaybackPhase, setMovementPlaybackPhase] =
+    useState<MovementPlaybackPhase>("preview");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const stopTrackingRef = useRef<(() => void) | null>(null);
@@ -394,6 +398,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       traineeRecordingUrlRef.current = null;
     }
     movementAttemptRef.current = [];
+    setMovementPlaybackPhase("preview");
     setTraineeRecordingUrl(null);
     setPracticeState("ready");
     setCountdown(null);
@@ -579,6 +584,127 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     stopPractice,
   ]);
 
+  const startMovementEvaluation = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video || activity?.type !== "movement" || !activity.movementData) return;
+    const attemptId = poseAttemptIdRef.current;
+
+    setCountdown(null);
+    setPracticeState("practicing");
+    setMovementPlaybackPhase("attempt");
+    setIsTracking(true);
+    movementAttemptRef.current = [];
+
+    if (traineeRecordingUrlRef.current) {
+      URL.revokeObjectURL(traineeRecordingUrlRef.current);
+      traineeRecordingUrlRef.current = null;
+    }
+    setTraineeRecordingUrl(null);
+
+    if (reviewRecordingEnabled && MovementVideoRecorder.isSupported()) {
+      try {
+        const recorder = new MovementVideoRecorder(video, { frameRate: 30 });
+        recorder.start();
+        traineeRecorderRef.current = recorder;
+      } catch (error) {
+        console.warn("Trainee video recording unavailable:", error);
+        traineeRecorderRef.current = null;
+      }
+    }
+
+    try {
+      const stopTracking = await mediaPipeService.startMovementTracking(
+        video,
+        (landmarks, timestamp) => {
+          if (attemptId !== poseAttemptIdRef.current) return;
+          publishLandmarks(landmarks);
+          movementAttemptRef.current.push({ timestamp, landmarks });
+          traineeRecorderRef.current?.pushLandmarks(landmarks);
+        },
+        {
+          duration: activity.duration || 10000,
+          onComplete: async () => {
+            if (attemptId !== poseAttemptIdRef.current) return;
+            try {
+              setPracticeState("processing");
+              setMovementPlaybackPhase("preview");
+
+              let traineeVideoUrl: string | null = null;
+              if (traineeRecorderRef.current) {
+                try {
+                  const result = await traineeRecorderRef.current.stop();
+                  if (result.blob.size > 0) {
+                    traineeVideoUrl = URL.createObjectURL(result.blob);
+                  }
+                } catch (error) {
+                  console.warn("Failed to finalize trainee recording:", error);
+                } finally {
+                  traineeRecorderRef.current = null;
+                }
+              }
+
+              stopPractice();
+              if (traineeVideoUrl) setTraineeRecordingUrl(traineeVideoUrl);
+
+              const result = comparisonService.compareMovementSequence(
+                activity.movementData ?? [],
+                movementAttemptRef.current,
+                difficulty
+              );
+              setComparisonResult(result);
+              setSession((previous) => ({
+                ...previous,
+                attempts: previous.attempts + 1,
+                successfulMatches:
+                  previous.successfulMatches + (result.isMatch ? 1 : 0),
+                totalScore: previous.totalScore + result.score,
+                bestScore: Math.max(previous.bestScore, result.score),
+              }));
+              setPracticeState("completed");
+            } catch (error) {
+              traineeRecorderRef.current?.cancel();
+              traineeRecorderRef.current = null;
+              setMovementPlaybackPhase("preview");
+              stopPractice();
+              handleError(
+                error instanceof Error ? error.message : "Failed to score movement"
+              );
+            }
+          },
+          onError: (error) => {
+            if (attemptId !== poseAttemptIdRef.current) return;
+            traineeRecorderRef.current?.cancel();
+            traineeRecorderRef.current = null;
+            setMovementPlaybackPhase("preview");
+            stopPractice();
+            handleError(error.message);
+          },
+        }
+      );
+      if (attemptId === poseAttemptIdRef.current) {
+        stopTrackingRef.current = stopTracking;
+      } else {
+        stopTracking();
+      }
+    } catch (error) {
+      if (attemptId !== poseAttemptIdRef.current) return;
+      traineeRecorderRef.current?.cancel();
+      traineeRecorderRef.current = null;
+      setMovementPlaybackPhase("preview");
+      stopPractice();
+      handleError(
+        error instanceof Error ? error.message : "Failed to start movement practice"
+      );
+    }
+  }, [
+    activity,
+    difficulty,
+    handleError,
+    publishLandmarks,
+    reviewRecordingEnabled,
+    stopPractice,
+  ]);
+
   // Countdown logic
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -586,11 +712,21 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       if (countdown > 0) {
         timer = setTimeout(() => setCountdown(countdown - 1), 1000);
       } else {
-        void startPoseEvaluation();
+        if (activity?.type === "movement") {
+          void startMovementEvaluation();
+        } else {
+          void startPoseEvaluation();
+        }
       }
     }
     return () => clearTimeout(timer);
-  }, [practiceState, countdown, startPoseEvaluation]);
+  }, [
+    activity?.type,
+    practiceState,
+    countdown,
+    startMovementEvaluation,
+    startPoseEvaluation,
+  ]);
 
   const startPractice = useCallback(async () => {
     if (!videoRef.current || !activity || practiceState !== "ready") return;
@@ -604,6 +740,9 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
       setEvaluationSecondsRemaining(5);
       setCapturedImage(null);
       setComparisonResult(null);
+      if (activity.type === "movement") {
+        setMovementPlaybackPhase("armed");
+      }
 
       await mediaPipeService.initializePoseLandmarker();
       await webcamService.startVideoStream(videoRef.current);
@@ -638,118 +777,13 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
         stopTrackingRef.current = stopTracking;
 
       } else if (activity.type === "movement" && activity.movementData) {
-        setPracticeState("practicing");
-        setIsTracking(true);
-
-        movementAttemptRef.current = [];
-        if (traineeRecordingUrlRef.current) {
-          URL.revokeObjectURL(traineeRecordingUrlRef.current);
-          traineeRecordingUrlRef.current = null;
-        }
-        setTraineeRecordingUrl(null);
-
-        // Capture trainee video (for side-by-side comparison review).
-        if (reviewRecordingEnabled && MovementVideoRecorder.isSupported() && videoRef.current) {
-          try {
-            const recorder = new MovementVideoRecorder(videoRef.current, {
-              frameRate: 30,
-            });
-            recorder.start();
-            traineeRecorderRef.current = recorder;
-          } catch (err) {
-            console.warn("Trainee video recording unavailable:", err);
-            traineeRecorderRef.current = null;
-          }
-        }
-
-        const stopTracking = await mediaPipeService.startMovementTracking(
-          videoRef.current,
-          (landmarks, timestamp) => {
-            publishLandmarks(landmarks);
-            movementAttemptRef.current.push({ timestamp, landmarks });
-            if (traineeRecorderRef.current) {
-              traineeRecorderRef.current.pushLandmarks(landmarks);
-            }
-          },
-          {
-            duration: activity.duration || 10000,
-            onComplete: async () => {
-              try {
-                setPracticeState("processing");
-
-                // Finalize trainee video recording (best effort).
-                let traineeVideoUrl: string | null = null;
-                if (traineeRecorderRef.current) {
-                  try {
-                    const result = await traineeRecorderRef.current.stop();
-                    if (result.blob.size > 0) {
-                      traineeVideoUrl = URL.createObjectURL(result.blob);
-                    }
-                  } catch (err) {
-                    console.warn("Failed to finalize trainee recording:", err);
-                  } finally {
-                    traineeRecorderRef.current = null;
-                  }
-                }
-
-                stopPractice();
-
-                if (traineeVideoUrl) {
-                  setTraineeRecordingUrl(traineeVideoUrl);
-                }
-
-                const result = comparisonService.compareMovementSequence(
-                  activity.movementData ?? [],
-                  movementAttemptRef.current,
-                  difficulty
-                );
-                setComparisonResult(result);
-
-                setSession((prev) => {
-                  const newAttempts = prev.attempts + 1;
-                  const newSuccessful = result.isMatch
-                    ? prev.successfulMatches + 1
-                    : prev.successfulMatches;
-                  const newTotalScore = prev.totalScore + result.score;
-                  const newBestScore = Math.max(prev.bestScore, result.score);
-                  return {
-                    ...prev,
-                    attempts: newAttempts,
-                    successfulMatches: newSuccessful,
-                    totalScore: newTotalScore,
-                    bestScore: newBestScore,
-                  };
-                });
-
-                setPracticeState("completed");
-              } catch (error) {
-                if (traineeRecorderRef.current) {
-                  traineeRecorderRef.current.cancel();
-                  traineeRecorderRef.current = null;
-                }
-                stopPractice();
-                const message =
-                  error instanceof Error
-                    ? error.message
-                    : "Failed to score movement";
-                handleError(message);
-              }
-            },
-            onError: (error) => {
-              if (traineeRecorderRef.current) {
-                traineeRecorderRef.current.cancel();
-                traineeRecorderRef.current = null;
-              }
-              stopPractice();
-              handleError(error.message);
-            },
-          }
-        );
-        stopTrackingRef.current = stopTracking;
+        setPracticeState("countdown");
+        setCountdown(3);
       }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to start practice";
+      setMovementPlaybackPhase("preview");
       stopPractice();
       handleError(message);
     }
@@ -759,9 +793,7 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
     clearError,
     handleError,
     stopPractice,
-    difficulty,
     publishLandmarks,
-    reviewRecordingEnabled,
   ]);
 
   const testCamera = useCallback(async () => {
@@ -952,7 +984,13 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                 </h3>
                 <div className="relative aspect-video bg-gray-100 rounded-lg overflow-hidden border border-gray-200 shadow-inner">
                    {activity.type === "movement" ? (
-                      <VideoReferencePlayer activity={activity} loop autoPlay />
+                      <VideoReferencePlayer
+                        activity={activity}
+                        autoPlay={movementPlaybackPhase === "attempt"}
+                        loop={movementPlaybackPhase !== "attempt"}
+                        controls={movementPlaybackPhase !== "attempt"}
+                        playbackResetKey={movementPlaybackPhase}
+                      />
                    ) : activity.imageData ? (
                       <PoseImageWithOverlay
                         src={activity.imageData}
@@ -1024,7 +1062,11 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
                            className="text-9xl font-bold text-white animate-pulse drop-shadow-lg"
                            style={{ textShadow: "0 2px 12px rgba(0,0,0,0.8)" }}
                          >
-                           {countdown === 0 ? "POSE!" : countdown}
+                           {countdown === 0
+                             ? activity.type === "movement"
+                               ? "GO!"
+                               : "POSE!"
+                             : countdown}
                          </div>
                       </div>
                    )}
@@ -1113,9 +1155,19 @@ const PracticeInterface: React.FC<PracticeInterfaceProps> = ({
              <ul className="text-sm text-blue-700 space-y-1 ml-4 list-disc">
                 <li>Ensure your whole body is visible in the camera frame.</li>
                 <li>Lighting should be bright enough for accurate detection.</li>
-                <li>After the countdown, improve your pose during the 5-second scoring window.</li>
-                <li>Your highest score and its matching photo will be saved.</li>
-                <li>Check the target image on the left and mirror it.</li>
+                {activity.type === "movement" ? (
+                  <>
+                    <li>Use the Target Movement controls to preview it before practicing.</li>
+                    <li>Start Practice gives you a 3, 2, 1 countdown.</li>
+                    <li>The target plays once when your movement recording begins.</li>
+                  </>
+                ) : (
+                  <>
+                    <li>After the countdown, improve your pose during the 5-second scoring window.</li>
+                    <li>Your highest score and its matching photo will be saved.</li>
+                    <li>Check the target image on the left and mirror it.</li>
+                  </>
+                )}
              </ul>
           </div>
         </div>

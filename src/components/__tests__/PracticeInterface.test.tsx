@@ -94,6 +94,8 @@ describe("PracticeInterface", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();
+    vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
 
     // Set default video dimensions
     Object.defineProperty(HTMLVideoElement.prototype, "videoWidth", {
@@ -131,6 +133,7 @@ describe("PracticeInterface", () => {
 
   afterEach(() => {
       vi.useRealTimers();
+      vi.restoreAllMocks();
   });
 
   describe("Loading and Error States", () => {
@@ -601,7 +604,7 @@ describe("PracticeInterface", () => {
           expect(screen.queryByText("No image available")).not.toBeInTheDocument();
       });
 
-      it("should handle movement practice flow", async () => {
+      it("counts down before starting tracking and plays the target once with the attempt", async () => {
           vi.useFakeTimers();
           let completeCallback: () => void = () => {};
 
@@ -627,12 +630,33 @@ describe("PracticeInterface", () => {
 
           await act(async () => {
               fireEvent.click(screen.getByText("Start Practice"));
-              // Advance for video ready check
               await vi.advanceTimersByTimeAsync(300);
               await Promise.resolve();
           });
 
-          expect(mediaPipeService.startMovementTracking).toHaveBeenCalled();
+          expect(screen.getByText("3")).toBeInTheDocument();
+          expect(mediaPipeService.startMovementTracking).not.toHaveBeenCalled();
+          expect(screen.getByRole("button", { name: "Play playback" })).toBeInTheDocument();
+
+          await act(async () => {
+              await vi.advanceTimersByTimeAsync(1000);
+          });
+          expect(screen.getByText("2")).toBeInTheDocument();
+          expect(mediaPipeService.startMovementTracking).not.toHaveBeenCalled();
+
+          await act(async () => {
+              await vi.advanceTimersByTimeAsync(1000);
+          });
+          expect(screen.getByText("1")).toBeInTheDocument();
+          expect(mediaPipeService.startMovementTracking).not.toHaveBeenCalled();
+
+          await act(async () => {
+              await vi.advanceTimersByTimeAsync(1000);
+              await Promise.resolve();
+          });
+
+          expect(mediaPipeService.startMovementTracking).toHaveBeenCalledTimes(1);
+          expect(screen.queryByRole("button", { name: /play playback|pause playback/i })).not.toBeInTheDocument();
 
           // Simulate completion
           await act(async () => {
@@ -640,6 +664,7 @@ describe("PracticeInterface", () => {
           });
 
           expect(webcamService.stopVideoStream).toHaveBeenCalled();
+          expect(screen.getByRole("button", { name: "Play playback" })).toBeInTheDocument();
       });
   });
 

@@ -8,6 +8,8 @@ interface MovementPlaybackProps {
 	loop?: boolean;
 	className?: string;
 	mirrored?: boolean;
+	playbackResetKey?: string | number;
+	controls?: boolean;
 }
 
 const POSE_CONNECTIONS: Array<[number, number]> = [
@@ -116,6 +118,8 @@ const MovementPlayback: React.FC<MovementPlaybackProps> = ({
 	loop = true,
 	className = "",
 	mirrored = false,
+	playbackResetKey,
+	controls = true,
 }) => {
 	const [currentIndex, setCurrentIndex] = useState(0);
 	const [isPlaying, setIsPlaying] = useState(autoPlay);
@@ -142,6 +146,12 @@ const MovementPlayback: React.FC<MovementPlaybackProps> = ({
 		startTimeRef.current = null;
 		setIsPlaying(true);
 	}, []);
+
+	useEffect(() => {
+		setCurrentIndex(0);
+		startTimeRef.current = null;
+		setIsPlaying(autoPlay);
+	}, [autoPlay, playbackResetKey]);
 
 	useEffect(() => {
 		if (!isPlaying || !hasFrames) return;
@@ -221,25 +231,27 @@ const MovementPlayback: React.FC<MovementPlaybackProps> = ({
 			</div>
 
 			{/* Playback controls */}
-			<div className="absolute bottom-2 left-2 right-2 flex items-center gap-2 pointer-events-auto">
-				<button
-					type="button"
-					onClick={() => (isPlaying ? stop() : restart())}
-					className="px-2 py-1 text-xs bg-white/90 text-gray-800 rounded shadow hover:bg-white"
-					aria-label={isPlaying ? "Pause playback" : "Play playback"}
-				>
-					{isPlaying ? "Pause" : "Play"}
-				</button>
-				<div className="flex-1 h-1 bg-white/20 rounded overflow-hidden">
-					<div
-						className="h-full bg-green-400 transition-[width] duration-100"
-						style={{ width: `${progress * 100}%` }}
-					/>
+			{controls && (
+				<div className="absolute bottom-2 left-2 right-2 flex items-center gap-2 pointer-events-auto">
+					<button
+						type="button"
+						onClick={() => (isPlaying ? stop() : restart())}
+						className="px-2 py-1 text-xs bg-white/90 text-gray-800 rounded shadow hover:bg-white"
+						aria-label={isPlaying ? "Pause playback" : "Play playback"}
+					>
+						{isPlaying ? "Pause" : "Play"}
+					</button>
+					<div className="flex-1 h-1 bg-white/20 rounded overflow-hidden">
+						<div
+							className="h-full bg-green-400 transition-[width] duration-100"
+							style={{ width: `${progress * 100}%` }}
+						/>
+					</div>
+					<span className="text-xs text-white/80 tabular-nums">
+						{currentIndex + 1}/{sequence.length}
+					</span>
 				</div>
-				<span className="text-xs text-white/80 tabular-nums">
-					{currentIndex + 1}/{sequence.length}
-				</span>
-			</div>
+			)}
 		</div>
 	);
 };

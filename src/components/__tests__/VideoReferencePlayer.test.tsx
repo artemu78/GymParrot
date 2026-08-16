@@ -39,16 +39,23 @@ const activityWithBlob: Activity = {
 describe("VideoReferencePlayer", () => {
   const originalCreateObjectURL = global.URL.createObjectURL;
   const originalRevokeObjectURL = global.URL.revokeObjectURL;
+  let playSpy: ReturnType<typeof vi.spyOn>;
+  let pauseSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     mockResolveUrl.mockReset();
     global.URL.createObjectURL = vi.fn(() => "blob:mock");
     global.URL.revokeObjectURL = vi.fn();
+    playSpy = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    pauseSpy = vi
+      .spyOn(HTMLMediaElement.prototype, "pause")
+      .mockImplementation(() => {});
   });
 
   afterEach(() => {
     global.URL.createObjectURL = originalCreateObjectURL;
     global.URL.revokeObjectURL = originalRevokeObjectURL;
+    vi.restoreAllMocks();
   });
 
   it("falls back to MovementPlayback when no video is available", () => {
@@ -80,6 +87,41 @@ describe("VideoReferencePlayer", () => {
     await waitFor(() => {
       expect(screen.getByTestId("movement-playback")).toBeInTheDocument();
     });
+  });
+
+  it("resets a stored video for preview, then starts one non-looping attempt", async () => {
+    mockResolveUrl.mockResolvedValue("blob:video");
+
+    const { rerender } = render(
+      <VideoReferencePlayer
+        activity={activityWithBlob}
+        autoPlay={false}
+        loop
+        controls
+        playbackResetKey="armed"
+      />,
+    );
+
+    const video = (await screen.findByTestId(
+      "reference-video",
+    )) as HTMLVideoElement;
+    await waitFor(() => expect(pauseSpy).toHaveBeenCalled());
+    expect(playSpy).not.toHaveBeenCalled();
+    expect(video.currentTime).toBe(0);
+
+    rerender(
+      <VideoReferencePlayer
+        activity={activityWithBlob}
+        autoPlay
+        loop={false}
+        controls={false}
+        playbackResetKey="attempt"
+      />,
+    );
+
+    await waitFor(() => expect(playSpy).toHaveBeenCalledTimes(1));
+    expect(video.loop).toBe(false);
+    expect(video.controls).toBe(false);
   });
 
   it("shows the empty-reference placeholder when no playback data exists", () => {

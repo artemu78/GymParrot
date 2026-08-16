@@ -10,6 +10,7 @@ interface VideoReferencePlayerProps {
   autoPlay?: boolean;
   controls?: boolean;
   className?: string;
+  playbackResetKey?: string | number;
 }
 
 /**
@@ -24,10 +25,12 @@ const VideoReferencePlayer: React.FC<VideoReferencePlayerProps> = ({
   autoPlay = true,
   controls = true,
   className = "",
+  playbackResetKey,
 }) => {
   const [videoSrc, setVideoSrc] = useState<string | null>(null);
   const [videoResolveFailed, setVideoResolveFailed] = useState(false);
   const createdUrlRef = useRef<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,12 +76,27 @@ const VideoReferencePlayer: React.FC<VideoReferencePlayerProps> = ({
     };
   }, [activity]);
 
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoSrc) return;
+
+    video.pause();
+    video.currentTime = 0;
+    if (autoPlay) {
+      const playPromise = video.play();
+      playPromise?.catch((error) => {
+        console.warn("Failed to start reference playback:", error);
+      });
+    }
+  }, [autoPlay, playbackResetKey, videoSrc]);
+
   const sequence: TimestampedLandmarks[] = activity.movementData ?? [];
   const shouldShowVideo = videoSrc && !videoResolveFailed;
 
   if (shouldShowVideo) {
     return (
       <video
+        ref={videoRef}
         src={videoSrc}
         autoPlay={autoPlay}
         loop={loop}
@@ -98,6 +116,8 @@ const VideoReferencePlayer: React.FC<VideoReferencePlayerProps> = ({
         autoPlay={autoPlay}
         loop={loop}
         className={className}
+        playbackResetKey={playbackResetKey}
+        controls={controls}
       />
     );
   }
